@@ -35,8 +35,8 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
   cleanupDb(dbPath);
 
   const transport = new StdioClientTransport({
-    command: "npx",
-    args: ["tsx", "src/memory/mcp_server.ts"],
+    command: "node",
+    args: ["./dist/mcp_server.js"],
     env: {
       ...process.env,
       SQLITE_MEM_PATH: dbPath,

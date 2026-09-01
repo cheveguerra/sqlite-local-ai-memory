@@ -4,7 +4,7 @@
  * RESPONSIBILITY: Primary Exportable Facade Class (Library + MCP).
  * ============================================================================
  */
-import type { MemoryConfig, MemoryHit } from "./types.js";
+import type { MemoryConfig, MemoryHit, AutoDreamResult } from "./types.js";
 import { SqliteStore } from "./sqlite_store.js";
 import { CognitiveAgents } from "./cognitive_agents.js";
 
@@ -23,14 +23,14 @@ export class MemoryEngine {
    * Saves text or conversation input, automatically extracting atomic facts.
    */
   public async save(text: string, userId: string = this.userId, opts?: { signal?: AbortSignal }): Promise<void> {
-    await this.agents.guardarMemoria(text, userId, opts?.signal);
+    await this.agents.saveMemory(text, userId, opts?.signal);
   }
 
   /**
    * Saves a pre-formatted fact directly without running through the Notary compiler.
    */
   public async saveFact(fact: string, userId: string = this.userId, opts?: { signal?: AbortSignal }): Promise<void> {
-    await this.agents.inyectarHechoUnificado(fact, userId, [], opts?.signal);
+    await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal);
   }
 
   /**
@@ -61,42 +61,42 @@ export class MemoryEngine {
     }
 
     const maxRankAbs = Math.max(...ftsHits.map((h) => Math.abs(h.rank ?? 0)), 1);
-    const mapaCombinado = new Map<string, MemoryHit>();
+    const combinedMap = new Map<string, MemoryHit>();
 
     for (const h of ftsHits) {
       const normalizedFtsScore = h.rank != null ? Math.abs(h.rank) / maxRankAbs : 0.5;
-      mapaCombinado.set(h.id, { ...h, score: normalizedFtsScore * 0.8 });
+      combinedMap.set(h.id, { ...h, score: normalizedFtsScore * 0.8 });
     }
 
     for (const h of vecHits) {
-      if (mapaCombinado.has(h.id)) {
-        const prev = mapaCombinado.get(h.id)!;
-        mapaCombinado.set(h.id, {
+      if (combinedMap.has(h.id)) {
+        const prev = combinedMap.get(h.id)!;
+        combinedMap.set(h.id, {
           ...prev,
           score: Math.max(prev.score || 0, (h.score || 0) * 0.9) + 0.1,
         });
       } else {
-        mapaCombinado.set(h.id, { ...h, score: (h.score || 0) * 0.9 });
+        combinedMap.set(h.id, { ...h, score: (h.score || 0) * 0.9 });
       }
     }
 
-    const unificados = Array.from(mapaCombinado.values());
-    unificados.sort((a, b) => (b.score || 0) - (a.score || 0));
+    const unified = Array.from(combinedMap.values());
+    unified.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-    return unificados.slice(0, limit);
+    return unified.slice(0, limit);
   }
 
   /**
    * Retrieves the current consolidated active working state summary (Dashboard).
    */
-  public getDashboard(userId: string = this.userId): { data: string; updated_at: string } | null {
+  public getDashboard(userId: string = this.userId): { data: string; memory?: string; updated_at: string } | null {
     return this.store.getDashboardFact(userId);
   }
 
   /**
    * Executes the AutoDream cognitive pruning and state consolidation cycle.
    */
-  public async consolidate(userId: string = this.userId): Promise<string> {
+  public async consolidate(userId: string = this.userId): Promise<AutoDreamResult> {
     return await this.agents.runAutoDream(userId);
   }
 
@@ -104,7 +104,7 @@ export class MemoryEngine {
    * Rewrites a short user query by reinforcing context from recent conversation history.
    */
   public async contextualizeQuery(query: string, shortHistory: string): Promise<string> {
-    return await this.agents.contextualizarConsulta(query, shortHistory);
+    return await this.agents.contextualizeQuery(query, shortHistory);
   }
 
   /**

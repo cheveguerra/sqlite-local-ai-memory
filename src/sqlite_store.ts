@@ -126,6 +126,7 @@ export class SqliteStore {
         id: String(r.id),
         user_id: String(r.user_id),
         data: String(r.data),
+        memory: String(r.data),
         source: String(r.source),
         created_at: String(r.created_at),
         rank: typeof r.rank === "number" ? r.rank : undefined,
@@ -163,6 +164,7 @@ export class SqliteStore {
             id: String(r.id),
             user_id: String(r.user_id),
             data: String(r.data),
+            memory: String(r.data),
             source: String(r.source),
             created_at: String(r.created_at),
             score,
@@ -228,7 +230,7 @@ export class SqliteStore {
     }
   }
 
-  public getDashboardFact(userId: string = "user_default"): { data: string; updated_at: string } | null {
+  public getDashboardFact(userId: string = "user_default"): { data: string; memory?: string; updated_at: string } | null {
     try {
       const row: any = this.db.prepare(`
         SELECT data, created_at as updated_at
@@ -237,7 +239,11 @@ export class SqliteStore {
       `).get(DASHBOARD_UUID, userId);
 
       if (row && row.data) {
-        return { data: String(row.data), updated_at: String(row.updated_at || "") };
+        return {
+          data: String(row.data),
+          memory: String(row.data),
+          updated_at: String(row.updated_at || "")
+        };
       }
     } catch (error: any) {
       console.error("[SQLITE_STORE] Error leyendo Dashboard:", error.message);
@@ -281,7 +287,7 @@ export class SqliteStore {
 
   public async backfillMissingVectors(getEmbeddingFn: (text: string) => Promise<number[]>, userId: string = "user_default"): Promise<number> {
     try {
-      const rows = this.db.prepare(`
+      const rows: any[] = this.db.prepare(`
         SELECT point_id, data
         FROM recuerdos_vectores
         WHERE user_id = ? AND vector_blob IS NULL AND source != 'inactive' AND point_id != ?

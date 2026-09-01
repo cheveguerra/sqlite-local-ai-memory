@@ -70,8 +70,8 @@ export interface MemoryHit {
 }
 
 export interface AtomicFact {
-  dato: string;
-  cat: string;
+  fact: string;
+  category: string;
 }
 
 export interface DashboardItem {
@@ -80,17 +80,37 @@ export interface DashboardItem {
   txt: string;
 }
 
+export interface TriageItem {
+  type: "TECHNICAL" | "PERSONAL" | "MILESTONES";
+  fact: string;
+}
+
+export interface OpenCaseItem {
+  id: string;
+  incident: string;
+  created_at?: string;
+}
+
+export interface AutoDreamResult {
+  narrativeSummary: string;
+  dashboard: DashboardItem[];
+  triageMemory: TriageItem[];
+  openCases: OpenCaseItem[];
+  totalActive: number;
+  statusMessage: string;
+}
+
 export type AgentSchemaKey = "notary" | "orchestrator" | "arbiter" | "none";
 
 export interface AgentModelConfig {
   desc: string;
   schemaKey?: AgentSchemaKey;
-  proveedor: "ollama" | "gemini" | "openrouter";
-  modelo: string;
+  provider: "ollama" | "gemini" | "openrouter";
+  model: string;
   endpoint?: string | null;
-  opciones?: Array<{
-    proveedor: "ollama" | "gemini" | "openrouter";
-    modelo: string;
+  options?: Array<{
+    provider: "ollama" | "gemini" | "openrouter";
+    model: string;
     endpoint?: string;
     timeout?: number;
   }>;

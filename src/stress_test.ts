@@ -155,7 +155,7 @@ async function runStressTest() {
     console.log("\n--- BLOQUE 6: Orquestador AutoDream (Consolidación de Pizarrón) ---");
 
     const autoDreamResult = await memory.consolidate();
-    assertTest("AutoDream: Ejecución de Consolidación", autoDreamResult.includes("AutoDream finalizado"), autoDreamResult);
+    assertTest("AutoDream: Ejecución de Consolidación", autoDreamResult.statusMessage.includes("AutoDream"), autoDreamResult.statusMessage);
 
     const dashboardObj = memory.getDashboard();
     assertTest("Pizarrón: Lectura de Estado Consolidado", dashboardObj !== null && dashboardObj.data.length > 0, `Pizarrón activo: ${dashboardObj?.updated_at}`);
