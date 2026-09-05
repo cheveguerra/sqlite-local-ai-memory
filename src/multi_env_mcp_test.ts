@@ -77,7 +77,7 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
     });
 
     // Test 3: save_fact
-    const factText = `[FACT_${envName}] Proxmox VE server active on IP 192.168.100.200`;
+    const factText = `[FACT_${envName}] Primary server active on IP 10.0.0.50`;
     const saveRes = await client.callTool({ name: "save_fact", arguments: { fact: factText } });
     const saveSuccess = Array.isArray(saveRes.content) && (String(saveRes.content[0].text).includes("successfully saved") || String(saveRes.content[0].text).includes("registrado exitosamente"));
     results.push({

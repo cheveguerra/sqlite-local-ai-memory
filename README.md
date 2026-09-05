@@ -51,12 +51,12 @@ import { MemoryEngine } from "sqlite-local-ai-memory";
 const memory = new MemoryEngine();
 
 // 1. Save a new fact (automatically filtered & audited for collisions)
-await memory.save("Server Proxmox is running on IP 192.168.100.200");
+await memory.save("Production database server is running on IP 10.0.0.50");
 
 // 2. Recall relevant facts instantly (FTS5 + Vector hybrid search)
-const facts = await memory.search("Where is Proxmox hosted?");
+const facts = await memory.search("Where is the database server hosted?");
 console.log(facts); 
-// -> [{ id: "...", data: "[TECHNICAL] Server Proxmox is running on IP 192.168.100.200", score: 0.95 }]
+// -> [{ id: "...", data: "[TECHNICAL] Production database server is running on IP 10.0.0.50", score: 0.95 }]
 
 // 3. Inspect active project dashboard (instant 0 ms SQLite read)
 const dashboard = memory.getDashboard();
@@ -399,7 +399,7 @@ Which port and user did we configure for the Postgres replica, and how are we tr
 | **State Maintenance** | None | `memory.consolidate()` (in background / session end) |
 | **Response Tone** | Accurate, concise, and purely bounded to historical facts. | Accurate, context-aware, and momentum-driven. |
 | **Context Overhead** | Ultra-low (only hit tokens) | Moderate (hits + active working cases) |
-| **Best For** | Search APIs, Q&A bots, technical inventory, CLI tools. | Developer copilots, personal assistants (Maria), live operations. |
+| **Best For** | Search APIs, Q&A bots, technical inventory, CLI tools. | Developer copilots, personal AI assistants, live operations. |
 
 ---
 
