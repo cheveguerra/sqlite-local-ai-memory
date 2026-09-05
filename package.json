@@ -24,6 +24,7 @@
     "start": "node ./dist/mcp_server.js",
     "test": "node ./dist/stress_test.js",
     "test:mcp": "node ./dist/multi_env_mcp_test.js",
+    "test:history": "node ./dist/test_autodream_history.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
