@@ -56,12 +56,12 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
 
     // Test 1: tools/list
     const tools = await client.listTools();
-    const has3Tools = tools.tools.length === 3;
+    const hasTools = tools.tools.length === 4;
     results.push({
       num: testCount++,
       env: envName,
       name: "Handshake JSON-RPC y tools/list",
-      passed: has3Tools,
+      passed: hasTools,
       details: `${tools.tools.length} herramientas registradas`,
     });
 
@@ -79,7 +79,7 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
     // Test 3: save_fact
     const factText = `[FACT_${envName}] Servidor Proxmox VE activo en IP 192.168.100.200`;
     const saveRes = await client.callTool({ name: "save_fact", arguments: { fact: factText } });
-    const saveSuccess = Array.isArray(saveRes.content) && String(saveRes.content[0].text).includes("registrado exitosamente");
+    const saveSuccess = Array.isArray(saveRes.content) && (String(saveRes.content[0].text).includes("successfully saved") || String(saveRes.content[0].text).includes("registrado exitosamente"));
     results.push({
       num: testCount++,
       env: envName,

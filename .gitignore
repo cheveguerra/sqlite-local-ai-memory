@@ -12,6 +12,7 @@ yarn-debug.log*
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 *.log
 
 # IDEs

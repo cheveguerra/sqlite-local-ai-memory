@@ -4,6 +4,12 @@
   "description": "100% In-Process Bare-Metal Hybrid Memory Engine & MCP Server for LLMs (SQLite WAL + Int8 Vectors).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "bin": {
     "sqlite-local-ai-memory": "./dist/mcp_server.js"
   },
