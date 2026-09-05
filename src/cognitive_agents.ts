@@ -767,7 +767,11 @@ Your task is to analyze recent facts and current working state, producing a stri
      * User preferences: format "fact" as "[PERSONAL] [PREFERENCE] <Specific detailed user preference>"
      * Project decisions: format "fact" as "[DEVELOPMENT] [ProjectName] <Specific milestone or architecture decision>"
 4. "open_cases": Array of {"id": string, "incident": string, "source"?: string} for unresolved diagnostics/investigations. Keep unresolved cases in dashboard ONLY; do NOT place them in triage_memory until resolved.
-   CRITICAL FOR OPEN CASES: "incident" MUST store the detailed initial symptom, error codes, affected file paths, and context from NEW_FACTS so that when a solution is reached in a future AutoDream cycle, the complete 4-block triage record can be assembled without losing past context.
+   CRITICAL RULES FOR OPEN CASES:
+   - ONLY include actual UNRESOLVED TECHNICAL BUGS, SYSTEM INCIDENTS, or IN-PROGRESS MULTI-STEP IMPLEMENTATIONS explicitly left pending.
+   - NEVER create an open_case for casual status inquiries (e.g. "how is server X doing?", "is sync running?", "battery usage inquiry"), informational questions, or simple chat turns.
+   - If a topic was merely discussed, inquired about, or resolved during dialogue, it is NOT an open case. Drop it.
+   - "incident" MUST store the detailed initial symptom, error codes, affected file paths, and context from NEW_FACTS so that when a solution is reached in a future AutoDream cycle, the complete 4-block triage record can be assembled without losing past context.
 
 Return strict JSON matching schema. Retain primary user's native language.`;
 
@@ -873,6 +877,24 @@ Return strict JSON matching schema. Retain primary user's native language.`;
           if (!exists) {
             newDashboard.push(other);
           }
+        }
+      }
+
+      // FIX: Preserve original timestamps so TTL works deterministically.
+      // If an item existed in previousDashboard, restore its original `ts`.
+      // Otherwise, LLM recreation would reset `ts = NOW` on every run, making items immortal.
+      const prevMap = new Map<string, number>();
+      for (const p of previousDashboard) {
+        if (p.id) prevMap.set(p.id, p.ts);
+        if (p.txt) prevMap.set(p.txt.trim().toLowerCase(), p.ts);
+      }
+
+      for (const item of newDashboard) {
+        const originalTs = prevMap.get(item.id) ?? prevMap.get(item.txt?.trim().toLowerCase());
+        if (originalTs && originalTs > 0) {
+          item.ts = originalTs;
+        } else if (!item.ts || isNaN(item.ts) || item.ts <= 0) {
+          item.ts = NOW;
         }
       }
 
