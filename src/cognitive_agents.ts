@@ -7,8 +7,44 @@
  */
 import axios from "axios";
 import * as crypto from "crypto";
-import type { MemoryConfig, AgentModelConfig, AutoDreamResult, TriageItem, OpenCaseItem, DashboardItem } from "./types.js";
+import type { MemoryConfig, AgentModelConfig, AutoDreamResult, TriageItem, OpenCaseItem, DashboardItem, ModelProvider, AgentSchemaKey } from "./types.js";
 import { SqliteStore } from "./sqlite_store.js";
+
+export interface ParsedModelTarget {
+  provider: ModelProvider;
+  model: string;
+}
+
+export function parseModelTarget(
+  raw?: string,
+  defaultProvider: ModelProvider = "gemini",
+  defaultModel: string = "gemini-2.5-flash-lite"
+): ParsedModelTarget | null {
+  if (raw === undefined) {
+    return { provider: defaultProvider, model: defaultModel };
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "none" || trimmed.toLowerCase() === "disabled" || trimmed.toLowerCase() === "off") {
+    return null;
+  }
+  if (trimmed.includes("/")) {
+    const idx = trimmed.indexOf("/");
+    const providerStr = trimmed.slice(0, idx).toLowerCase();
+    const model = trimmed.slice(idx + 1);
+    let provider: ModelProvider = defaultProvider;
+    if (providerStr === "ollama" || providerStr === "gemini" || providerStr === "openrouter" || providerStr === "openai") {
+      provider = providerStr;
+    }
+    return { provider, model };
+  }
+  if (trimmed.toLowerCase().startsWith("gemini")) {
+    return { provider: "gemini", model: trimmed };
+  }
+  if (trimmed.includes(":") || defaultProvider === "ollama") {
+    return { provider: "ollama", model: trimmed };
+  }
+  return { provider: defaultProvider, model: trimmed };
+}
 
 export function extractJsonPayload(text: string): string {
   if (!text) return "";
@@ -40,6 +76,7 @@ export class CognitiveAgents {
       semanticArbitrator: config.semanticArbitrator !== false,
       dashboardTTLHours: config.dashboardTTLHours || 12,
       customPrompts: config.customPrompts || {},
+      debug: config.debug !== undefined ? config.debug : (process.env.MEMORY_DEBUG === "true" || process.env.DEBUG === "true"),
     };
     this.store = store;
   }
@@ -71,74 +108,80 @@ export class CognitiveAgents {
     const ollamaChatEndpoint = `${apiUrl}/chat`;
     const ollamaEmbedEndpoint = `${apiUrl}/embed`;
 
-    const gatekeeperModel = process.env.GATEKEEPER_MODEL || process.env.PORTERO_MODEL || "qwen2.5-coder:1.5b";
-    const notaryModel = process.env.NOTARY_MODEL || "gemini-2.5-flash-lite";
-    const orchestratorModel = process.env.ORCHESTRATOR_MODEL || "gemini-2.5-flash-lite";
-    const arbiterModel = process.env.ARBITER_MODEL || "gemini-2.5-flash-lite";
+    const gatekeeperTarget = parseModelTarget(process.env.GATEKEEPER_MODEL || process.env.PORTERO_MODEL, "ollama", "qwen2.5-coder:1.5b");
+    const expanderTarget = parseModelTarget(process.env.EXPANDER_MODEL ?? process.env.LIBRARIAN_MODEL, "gemini", "gemini-2.5-flash-lite");
+    const notaryTarget = parseModelTarget(process.env.NOTARY_MODEL, "gemini", "gemini-2.5-flash-lite");
+    const orchestratorTarget = parseModelTarget(process.env.ORCHESTRATOR_MODEL, "gemini", "gemini-2.5-flash-lite");
+    const arbiterTarget = parseModelTarget(process.env.ARBITER_MODEL, "gemini", "gemini-2.5-flash-lite");
+    const embedderTarget = parseModelTarget(process.env.EMBEDDER_MODEL, "ollama", "nomic-embed-text");
 
-    const GATEKEEPER: AgentModelConfig = {
+    const createConfig = (
+      desc: string,
+      schemaKey: AgentSchemaKey,
+      target: ParsedModelTarget | null,
+      defaultTimeout: number
+    ): AgentModelConfig | null => {
+      if (!target) return null;
+      const endpoint = target.provider === "ollama" ? ollamaChatEndpoint : undefined;
+      return {
+        desc,
+        schemaKey,
+        provider: target.provider,
+        model: target.model,
+        endpoint,
+        options: [
+          { provider: target.provider, model: target.model, endpoint, timeout: defaultTimeout },
+        ],
+      };
+    };
+
+    const GATEKEEPER: AgentModelConfig = createConfig("Noise Filter (Gatekeeper)", "none", gatekeeperTarget, 15000) || {
       desc: "Noise Filter (Gatekeeper)",
       schemaKey: "none",
       provider: "ollama",
-      model: gatekeeperModel,
+      model: "qwen2.5-coder:1.5b",
       endpoint: ollamaChatEndpoint,
-      options: [
-        { provider: "ollama", model: gatekeeperModel, endpoint: ollamaChatEndpoint, timeout: 15000 },
-        { provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 10000 },
-      ],
+      options: [{ provider: "ollama", model: "qwen2.5-coder:1.5b", endpoint: ollamaChatEndpoint, timeout: 15000 }],
     };
 
-    const QUERY_EXPANDER: AgentModelConfig = {
-      desc: "Query Expander (Librarian)",
-      schemaKey: "none",
-      provider: "gemini",
-      model: "gemini-2.5-flash-lite",
-      options: [
-        { provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 15000 },
-        { provider: "ollama", model: gatekeeperModel, endpoint: ollamaChatEndpoint, timeout: 15000 },
-      ],
-    };
+    const QUERY_EXPANDER: AgentModelConfig | null = createConfig("Query Expander (Librarian)", "none", expanderTarget, 15000);
 
-    const NOTARY: AgentModelConfig = {
+    const NOTARY: AgentModelConfig = createConfig("Atomic Fact Notary", "notary", notaryTarget, 30000) || {
       desc: "Atomic Fact Notary",
       schemaKey: "notary",
       provider: "gemini",
-      model: notaryModel,
-      options: [
-        { provider: "gemini", model: notaryModel, timeout: 30000 },
-        { provider: "ollama", model: gatekeeperModel, endpoint: ollamaChatEndpoint, timeout: 30000 },
-      ],
+      model: "gemini-2.5-flash-lite",
+      options: [{ provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 30000 }],
     };
 
-    const STATE_ORCHESTRATOR: AgentModelConfig = {
+    const STATE_ORCHESTRATOR: AgentModelConfig = createConfig("Dashboard State Orchestrator", "orchestrator", orchestratorTarget, 30000) || {
       desc: "Dashboard State Orchestrator",
       schemaKey: "orchestrator",
       provider: "gemini",
-      model: orchestratorModel,
-      options: [
-        { provider: "gemini", model: orchestratorModel, timeout: 30000 },
-        { provider: "ollama", model: gatekeeperModel, endpoint: ollamaChatEndpoint, timeout: 30000 },
-      ],
+      model: "gemini-2.5-flash-lite",
+      options: [{ provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 30000 }],
     };
 
-    const SEMANTIC_ARBITER: AgentModelConfig = {
+    const SEMANTIC_ARBITER: AgentModelConfig = createConfig("State Collision Auditor (Semantic Arbiter)", "arbiter", arbiterTarget, 15000) || {
       desc: "State Collision Auditor (Semantic Arbiter)",
       schemaKey: "arbiter",
       provider: "gemini",
-      model: arbiterModel,
-      options: [
-        { provider: "gemini", model: arbiterModel, timeout: 15000 },
-        { provider: "ollama", model: gatekeeperModel, endpoint: ollamaChatEndpoint, timeout: 15000 },
-      ],
+      model: "gemini-2.5-flash-lite",
+      options: [{ provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 15000 }],
     };
 
     const EMBEDDER: AgentModelConfig = {
       desc: "Embedding Generator",
       schemaKey: "none",
-      provider: "ollama",
-      model: "nomic-embed-text",
-      endpoint: ollamaEmbedEndpoint,
-      options: [{ provider: "ollama", model: "nomic-embed-text", endpoint: ollamaEmbedEndpoint, timeout: 10000 }],
+      provider: embedderTarget?.provider || "ollama",
+      model: embedderTarget?.model || "nomic-embed-text",
+      endpoint: embedderTarget?.provider === "ollama" ? ollamaEmbedEndpoint : undefined,
+      options: [{
+        provider: embedderTarget?.provider || "ollama",
+        model: embedderTarget?.model || "nomic-embed-text",
+        endpoint: embedderTarget?.provider === "ollama" ? ollamaEmbedEndpoint : undefined,
+        timeout: 10000,
+      }],
     };
 
     return {
@@ -241,6 +284,36 @@ export class CognitiveAgents {
             { signal, timeout: timeoutMs } as any
           );
           return res.response.text().trim();
+        } else if (config.provider === "openrouter" || config.provider === "openai") {
+          const isOpenRouter = config.provider === "openrouter";
+          const apiKey = isOpenRouter
+            ? (this.config.openRouterApiKey || process.env.OPENROUTER_API_KEY)
+            : (process.env.OPENAI_API_KEY || this.config.openRouterApiKey);
+          const defaultEndpoint = isOpenRouter
+            ? "https://openrouter.ai/api/v1/chat/completions"
+            : (process.env.OPENAI_BASE_URL ? `${process.env.OPENAI_BASE_URL.replace(/\/+$/, "")}/chat/completions` : "https://api.openai.com/v1/chat/completions");
+          const endpoint = config.endpoint || defaultEndpoint;
+
+          const payload: any = {
+            model: config.model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+          };
+          if (isJson) {
+            payload.response_format = { type: "json_object" };
+          }
+
+          const res = await axios.post(endpoint, payload, {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            timeout: timeoutMs,
+            signal,
+          });
+          return (res.data?.choices?.[0]?.message?.content || "").trim();
         }
       } catch (error: any) {
         console.warn(`⚠️ Temporary fallback in Agent [${agentConfig.desc}] with provider [${config.provider}]:`, error.message);
@@ -328,7 +401,19 @@ export class CognitiveAgents {
   }
 
   public async contextualizeQuery(originalQuery: string, shortHistory: string): Promise<string> {
-    if (originalQuery.length > 50) return originalQuery;
+    const expanderAgent = this.getAgentsMatrix().QUERY_EXPANDER;
+    if (!expanderAgent) {
+      if (this.config.debug) {
+        console.error(`🔎 [MEMORY:EXPANDER] Bypassed (Disabled) -> Literal query: "${originalQuery}" (0 ms)`);
+      }
+      return originalQuery;
+    }
+    if (originalQuery.length > 50) {
+      if (this.config.debug) {
+        console.error(`🔎 [MEMORY:EXPANDER] Bypassed (Query > 50 chars) -> Literal query: "${originalQuery}" (0 ms)`);
+      }
+      return originalQuery;
+    }
 
     const defaultLibrarian = `You are an Information Retrieval (RAG) expert and key entity extractor.
 Your task is to rewrite the user's input to construct an ultra-clean semantic query, preserving and REINFORCING the search with prior conversational context.
@@ -339,9 +424,16 @@ SUPREME RULE: Retain all proper nouns, project names, and technical terms. Outpu
     const userPrompt = `[RECENT HISTORY]:\n${shortHistory}\n\n[SHORT QUERY]: "${originalQuery}"`;
 
     try {
-      const res = await this.executeAgent(this.getAgentsMatrix().QUERY_EXPANDER, systemPrompt, userPrompt);
-      return res || originalQuery;
+      const res = await this.executeAgent(expanderAgent, systemPrompt, userPrompt);
+      const finalQuery = res || originalQuery;
+      if (this.config.debug) {
+        console.error(`🔎 [MEMORY:EXPANDER] Original: "${originalQuery}" -> Expanded: "${finalQuery}"`);
+      }
+      return finalQuery;
     } catch (_) {
+      if (this.config.debug) {
+        console.error(`🔎 [MEMORY:EXPANDER] Fallback to raw query on error: "${originalQuery}"`);
+      }
       return originalQuery;
     }
   }
@@ -389,9 +481,17 @@ If the NEW FACT is additive or new, return replace_index = 0. Return strict JSON
           const collision = matches[idx - 1];
           if (collision && !protectedIds.includes(collision.id)) {
             const ok = this.store.deactivateMemoryFact(collision.id);
-            if (!ok) {
+            if (ok) {
+              if (this.config.debug) {
+                console.error(`⚖️ [MEMORY:ARBITER] Conflict detected: Replaced fact (UUID: ${collision.id}) "${collision.payload.data}" with new fact: "${fact}"`);
+              }
+            } else {
               console.error(`❌ [COGNITIVE] Failed to deactivate collided fact ${collision.id}`);
             }
+          }
+        } else {
+          if (this.config.debug) {
+            console.error(`⚖️ [MEMORY:ARBITER] Additive fact verified (No collision): "${fact}"`);
           }
         }
       } catch (err: any) {
@@ -421,14 +521,27 @@ If the NEW FACT is additive or new, return replace_index = 0. Return strict JSON
     const pureMessage = messageMatch ? messageMatch[1].trim().toLowerCase() : text.trim().toLowerCase();
 
     const junkRegex = /^[\s]*(hola|hello|hi|hey|ok|okay|okey|thanks|thank you|gracias|jaja|jajaja|simon|simón|va|dale|vale|listo|enterado|enterada|listisimo|listísima|buenas|buenos dias|buenas tardes|good morning|good afternoon|good evening|me parece bien|got it|sounds good|cool|sure|alright|yes|yeah|yep|bye|goodbye)[\s.?!]*$/i;
-    if (junkRegex.test(pureMessage) || pureMessage.startsWith("simon me") || pureMessage.startsWith("enterado list")) return;
+    if (junkRegex.test(pureMessage) || pureMessage.startsWith("simon me") || pureMessage.startsWith("enterado list")) {
+      if (this.config.debug) {
+        console.error(`🧹 [MEMORY:GATEKEEPER] Dropped as empty chatter by Layer 1 (Regex): "${pureMessage}"`);
+      }
+      return;
+    }
 
     const defaultGatekeeper = `Classify the input message into KNOWLEDGE (contains personal facts, preferences, or technical status), TRANSACTIONAL (small talk / empty chatter), or OPERATIONAL. Respond ONLY with the category name.`;
     const gatekeeperPrompt = this.config.customPrompts?.gatekeeperSystem || this.config.customPrompts?.porteroSystem || defaultGatekeeper;
     
     try {
       const cat = await this.executeAgent(this.getAgentsMatrix().GATEKEEPER, gatekeeperPrompt, `Message: "${pureMessage}"`, false, signal);
-      if (cat.toUpperCase().includes("TRANSACTIONAL")) return;
+      if (cat.toUpperCase().includes("TRANSACTIONAL")) {
+        if (this.config.debug) {
+          console.error(`🧹 [MEMORY:GATEKEEPER] Dropped as TRANSACTIONAL chatter by Layer 2 SLM: "${pureMessage}" (Category: ${cat.trim()})`);
+        }
+        return;
+      }
+      if (this.config.debug) {
+        console.error(`🛡️ [MEMORY:GATEKEEPER] Passed Layer 2 SLM check (Category: ${cat.trim()}) for: "${pureMessage}"`);
+      }
     } catch (err: any) {
       if (err.name === "AbortError" || signal?.aborted) throw err;
       console.warn("⚠️ [COGNITIVE] Gatekeeper agent check failed, proceeding to notary:", err.message);
@@ -445,6 +558,10 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
 
       const factsList = parsedJson.facts || parsedJson.hechos;
       if (factsList && Array.isArray(factsList)) {
+        if (this.config.debug) {
+          console.error(`📝 [MEMORY:NOTARY] Extracted ${factsList.length} atomic fact(s):`);
+          factsList.forEach((f: any) => console.error(`   • [${f.category || f.cat || "GENERAL"}] ${f.fact || f.dato || ""}`));
+        }
         const protectedIds: string[] = [];
         for (const item of factsList) {
           const category = item.category || item.cat || "GENERAL";
@@ -595,6 +712,31 @@ Return strict JSON matching schema. Retain primary user's native language.`;
           const finalFact = item.fact.startsWith("[") ? item.fact : `${prefix}${item.fact}`;
           await this.injectUnifiedFact(finalFact, userId);
         }
+      }
+
+      if (this.config.debug) {
+        console.error(`\n🌙 [MEMORY:AUTODREAM]`);
+        console.error(`├─ Input Facts Analyzed: ${newFacts.length} fact(s) since ${effectiveConsolidationDate}`);
+        console.error(`├─ Active Incubator Cases: ${openCasesList.length} incident(s)`);
+        console.error(`├─ Executive Narrative Summary:\n│  "${narrativeSummary}"`);
+        console.error(`├─ Active Dashboard (${newDashboard.length} items):`);
+        if (newDashboard.length === 0) {
+          console.error(`│  (Empty dashboard)`);
+        } else {
+          newDashboard.forEach((d, i) => {
+            console.error(`│  [${i + 1}] ${d.txt}`);
+          });
+        }
+        console.error(`└─ Triage Cards Generated (${triageList.length} items):`);
+        if (triageList.length === 0) {
+          console.error(`   (No permanent triage cards created in this cycle)`);
+        } else {
+          triageList.forEach((t, i) => {
+            console.error(`   [Card ${i + 1} - ${t.type}]`);
+            console.error(`   ${t.fact}`);
+          });
+        }
+        console.error(`────────────────────────────────────────────────────\n`);
       }
 
       return {

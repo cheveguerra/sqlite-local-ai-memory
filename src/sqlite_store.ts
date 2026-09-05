@@ -33,10 +33,18 @@ export class SqliteStore {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    const db = new Database(targetPath);
-    db.pragma("journal_mode = WAL");
+    const journalMode = (process.env.SQLITE_JOURNAL_MODE || "TRUNCATE").toUpperCase();
+    const busyTimeout = parseInt(process.env.SQLITE_BUSY_TIMEOUT || "5000", 10);
+
+    const db = new Database(targetPath, { timeout: busyTimeout });
+    db.pragma(`busy_timeout = ${busyTimeout}`);
+    db.pragma(`journal_mode = ${journalMode}`);
     db.pragma("synchronous = NORMAL");
-    db.pragma("mmap_size = 268435456"); // 256MB mmap
+    if (journalMode === "WAL") {
+      db.pragma("mmap_size = 268435456"); // 256MB mmap solo seguro en WAL local
+    } else {
+      db.pragma("mmap_size = 0");
+    }
 
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS recuerdos_fts USING fts5(

@@ -55,6 +55,8 @@ export interface MemoryConfig {
   dashboardTTLHours?: number;
   /** Optional custom system prompt overrides for fine-tuning cognitive agent behavior */
   customPrompts?: CustomPrompts;
+  /** Enable detailed multi-stage console debugging logs (default: false, env: MEMORY_DEBUG) */
+  debug?: boolean;
 }
 
 export interface MemoryHit {
@@ -102,14 +104,16 @@ export interface AutoDreamResult {
 
 export type AgentSchemaKey = "notary" | "orchestrator" | "arbiter" | "none";
 
+export type ModelProvider = "ollama" | "gemini" | "openrouter" | "openai";
+
 export interface AgentModelConfig {
   desc: string;
   schemaKey?: AgentSchemaKey;
-  provider: "ollama" | "gemini" | "openrouter";
+  provider: ModelProvider;
   model: string;
   endpoint?: string | null;
   options?: Array<{
-    provider: "ollama" | "gemini" | "openrouter";
+    provider: ModelProvider;
     model: string;
     endpoint?: string;
     timeout?: number;

@@ -12,11 +12,15 @@ export class MemoryEngine {
   private store: SqliteStore;
   private agents: CognitiveAgents;
   private userId: string;
+  private debug: boolean;
 
   constructor(config: MemoryConfig = {}) {
     this.userId = config.userId || "user_default";
+    this.debug = config.debug !== undefined
+      ? config.debug
+      : (process.env.MEMORY_DEBUG === "true" || process.env.DEBUG === "true");
     this.store = new SqliteStore(config.dbPath);
-    this.agents = new CognitiveAgents(config, this.store);
+    this.agents = new CognitiveAgents({ ...config, debug: this.debug }, this.store);
   }
 
   /**
@@ -82,15 +86,41 @@ export class MemoryEngine {
 
     const unified = Array.from(combinedMap.values());
     unified.sort((a, b) => (b.score || 0) - (a.score || 0));
+    const results = unified.slice(0, limit);
 
-    return unified.slice(0, limit);
+    if (this.debug) {
+      console.error(`\n🔍 [MEMORY:SEARCH]`);
+      console.error(`├─ Query: "${query}" (User: ${userId})`);
+      console.error(`├─ Raw Matches: FTS5 BM25 = ${ftsHits.length} | Vector Cosine = ${vecHits.length}`);
+      console.error(`└─ Ranked Results (Top ${results.length}):`);
+      if (results.length === 0) {
+        console.error(`   (No matching memories found)`);
+      } else {
+        results.forEach((r, i) => {
+          const scoreStr = (r.score ?? 0).toFixed(3);
+          const snippet = r.data.length > 90 ? `${r.data.slice(0, 90)}...` : r.data;
+          console.error(`   [${i + 1}] [Score: ${scoreStr}] ${snippet}`);
+        });
+      }
+      console.error(`────────────────────────────────────────────────────\n`);
+    }
+
+    return results;
   }
 
   /**
    * Retrieves the current consolidated active working state summary (Dashboard).
    */
   public getDashboard(userId: string = this.userId): { data: string; memory?: string; updated_at: string } | null {
-    return this.store.getDashboardFact(userId);
+    const dash = this.store.getDashboardFact(userId);
+    if (this.debug) {
+      console.error(`\n📋 [MEMORY:DASHBOARD]`);
+      console.error(`├─ User: ${userId}`);
+      console.error(`├─ Updated: ${dash?.updated_at || "Never"}`);
+      console.error(`└─ Content:\n${dash?.data || "(Empty dashboard)"}`);
+      console.error(`────────────────────────────────────────────────────\n`);
+    }
+    return dash;
   }
 
   /**
