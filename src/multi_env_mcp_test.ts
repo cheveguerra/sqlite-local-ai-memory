@@ -1,8 +1,8 @@
 /**
  * ============================================================================
- * ARCHIVO: src/memory/multi_env_mcp_test.ts
- * RESPONSABILIDAD: Suite de 20 Pruebas Empíricas del Cliente y Servidor MCP
- * a través de 4 Escenarios de Entorno (Full Stack, Solo Cloud, Solo Ollama, Cero-IA).
+ * FILE: src/memory/multi_env_mcp_test.ts
+ * RESPONSIBILITY: Comprehensive 20-test suite for MCP Client and Server
+ * across 4 environment scenarios (Full Stack, Cloud Only, Ollama Only, Zero-AI).
  * ============================================================================
  */
 import fs from "fs";
@@ -29,7 +29,7 @@ function cleanupDb(dbPath: string) {
 
 async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<string, string>, startTestNum: number) {
   console.log(`\n=================================================================`);
-  console.log(`🧪 PROBANDO ENTORNO: ${envName}`);
+  console.log(`🧪 TESTING ENVIRONMENT: ${envName}`);
   console.log(`=================================================================`);
 
   cleanupDb(dbPath);
@@ -45,7 +45,7 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
   });
 
   const client = new Client(
-    { name: `test-client-${envName.toLowerCase()}`, version: "1.0.0" },
+    { name: `test-client-${envName.toLowerCase().replace(/[^a-z0-9]/g, "-")}`, version: "1.0.0" },
     { capabilities: {} }
   );
 
@@ -60,30 +60,30 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
     results.push({
       num: testCount++,
       env: envName,
-      name: "Handshake JSON-RPC y tools/list",
+      name: "JSON-RPC Handshake & tools/list",
       passed: hasTools,
-      details: `${tools.tools.length} herramientas registradas`,
+      details: `${tools.tools.length} registered tools`,
     });
 
-    // Test 2: get_current_state (Inicial)
+    // Test 2: get_current_state (Initial)
     const state1 = await client.callTool({ name: "get_current_state", arguments: {} });
     const isText1 = Array.isArray(state1.content) && state1.content.length > 0;
     results.push({
       num: testCount++,
       env: envName,
-      name: "get_current_state (Estado Inicial)",
+      name: "get_current_state (Initial State)",
       passed: isText1,
-      details: `Respuesta recibida en ${envName}`,
+      details: `Response received in ${envName}`,
     });
 
     // Test 3: save_fact
-    const factText = `[FACT_${envName}] Servidor Proxmox VE activo en IP 192.168.100.200`;
+    const factText = `[FACT_${envName}] Proxmox VE server active on IP 192.168.100.200`;
     const saveRes = await client.callTool({ name: "save_fact", arguments: { fact: factText } });
     const saveSuccess = Array.isArray(saveRes.content) && (String(saveRes.content[0].text).includes("successfully saved") || String(saveRes.content[0].text).includes("registrado exitosamente"));
     results.push({
       num: testCount++,
       env: envName,
-      name: "save_fact (Ingesta de Hecho)",
+      name: "save_fact (Fact Ingestion)",
       passed: saveSuccess,
       details: String(saveRes.content[0]?.text || "").slice(0, 60),
     });
@@ -94,29 +94,29 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
     results.push({
       num: testCount++,
       env: envName,
-      name: "search_memory (Búsqueda RAG/FTS5)",
+      name: "search_memory (RAG/FTS5 Search)",
       passed: searchSuccess,
       details: String(searchRes.content[0]?.text || "").slice(0, 60),
     });
 
-    // Test 5: get_current_state (Posterior a Ingesta)
+    // Test 5: get_current_state (Post-Ingestion)
     const state2 = await client.callTool({ name: "get_current_state", arguments: {} });
     const isText2 = Array.isArray(state2.content) && state2.content.length > 0;
     results.push({
       num: testCount++,
       env: envName,
-      name: "get_current_state (Pizarrón Actualizado)",
+      name: "get_current_state (Updated Dashboard)",
       passed: isText2,
-      details: `Retornado Pizarrón en ${envName}`,
+      details: `Dashboard returned in ${envName}`,
     });
 
     await client.close();
   } catch (err: any) {
-    console.error(`❌ Error probando ${envName}:`, err.message);
+    console.error(`❌ Error testing ${envName}:`, err.message);
     results.push({
       num: testCount,
       env: envName,
-      name: "Ejecución de Entorno",
+      name: "Environment Execution",
       passed: false,
       details: err.message,
     });
@@ -124,41 +124,41 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
 }
 
 async function main() {
-  console.log("🚀 [MULTI_ENV_TEST] Iniciando Batería de 20 Pruebas Empíricas MCP en 4 Entornos...");
+  console.log("🚀 [MULTI_ENV_TEST] Starting 20 Empirical MCP Tests across 4 Environments...");
 
   const activeGeminiKey = process.env.GEMINI_API_KEY || "";
   const defaultOllamaUrl = process.env.OLLAMA_URL || "http://localhost:11434/api";
 
-  // ENTORNO 1: Full Stack (Ollama + Cloud Gemini) - Pruebas 1 a 5 (Score Híbrido 0.90)
+  // ENVIRONMENT 1: Full Stack (Ollama + Cloud Gemini)
   await runMcpEnvTest("1. Full Stack (Ollama + Cloud)", "./memoria_env_full.db", { OLLAMA_URL: defaultOllamaUrl, GEMINI_API_KEY: activeGeminiKey }, 1);
 
-  // ENTORNO 2: 100% Gemini Cloud (Ollama Off + Gemini Embeddings) - Pruebas 6 a 10 (Score Híbrido 0.90)
-  await runMcpEnvTest("2. Solo Gemini Cloud (Ollama Off)", "./memoria_env_cloud.db", { OLLAMA_URL: "http://127.0.0.1:9999", GEMINI_API_KEY: activeGeminiKey }, 6);
+  // ENVIRONMENT 2: Cloud Only (Gemini Cloud + Embeddings)
+  await runMcpEnvTest("2. Cloud Gemini Only (Ollama Off)", "./memoria_env_cloud.db", { OLLAMA_URL: "http://127.0.0.1:9999", GEMINI_API_KEY: activeGeminiKey }, 6);
 
-  // ENTORNO 3: 100% Ollama Local (Cloud Off) - Pruebas 11 a 15 (Score Híbrido 0.90)
-  await runMcpEnvTest("3. Solo Ollama Local (Cloud Off)", "./memoria_env_ollama.db", { GEMINI_API_KEY: "", OLLAMA_URL: defaultOllamaUrl }, 11);
+  // ENVIRONMENT 3: Local Only (Ollama Local, Cloud Off)
+  await runMcpEnvTest("3. Local Ollama Only (Cloud Off)", "./memoria_env_ollama.db", { GEMINI_API_KEY: "", OLLAMA_URL: defaultOllamaUrl }, 11);
 
-  // ENTORNO 4: Cero-IA Fallback Extremo (Sin Ollama, Sin Cloud) - Pruebas 16 a 20 (Score FTS5 0.80)
-  await runMcpEnvTest("4. Cero-IA Fallback Extremo", "./memoria_env_zero.db", { OLLAMA_URL: "http://127.0.0.1:9999", GEMINI_API_KEY: "" }, 16);
+  // ENVIRONMENT 4: Zero-AI Fallback (No Ollama, No Cloud)
+  await runMcpEnvTest("4. Zero-AI Extreme Fallback", "./memoria_env_zero.db", { OLLAMA_URL: "http://127.0.0.1:9999", GEMINI_API_KEY: "" }, 16);
 
   console.log("\n=================================================================");
-  console.log("📊 INFORME EMPÍRICO DE BALANCE DE LAS 20 PRUEBAS MCP:");
+  console.log("📊 EMPIRICAL TEST SUMMARY (20 MCP TESTS):");
   console.log("=================================================================");
 
-  let exitosas = 0;
+  let successful = 0;
   for (const r of results) {
-    if (r.passed) exitosas++;
-    console.log(`${r.passed ? "✅" : "❌"} [PRUEBA ${r.num}] [${r.env}] ${r.name}: ${r.details}`);
+    if (r.passed) successful++;
+    console.log(`${r.passed ? "✅" : "❌"} [TEST ${r.num}] [${r.env}] ${r.name}: ${r.details}`);
   }
 
-  console.log(`\n🏆 RESULTADO GLOBAL: ${exitosas} / ${results.length} PRUEBAS PASADAS (${((exitosas / results.length) * 100).toFixed(1)}% Éxito)`);
-  if (exitosas < results.length) {
-    console.error(`💥 ${results.length - exitosas} prueba(s) fallaron.`);
+  console.log(`\n🏆 GLOBAL RESULT: ${successful} / ${results.length} TESTS PASSED (${((successful / results.length) * 100).toFixed(1)}% Success)`);
+  if (successful < results.length) {
+    console.error(`💥 ${results.length - successful} test(s) failed.`);
     process.exit(1);
   }
 }
 
 main().catch((err) => {
-  console.error("❌ Fallo general en runner de pruebas:", err);
+  console.error("❌ Fatal error in test runner:", err);
   process.exit(1);
 });

@@ -140,7 +140,7 @@ export class SqliteStore {
         rank: typeof r.rank === "number" ? r.rank : undefined,
       }));
     } catch (error: any) {
-      console.error("[SQLITE_STORE] Error en búsqueda FTS5:", error.message);
+      console.error("[SQLITE_STORE] Error in FTS5 search:", error.message);
       return [];
     }
   }
@@ -183,7 +183,7 @@ export class SqliteStore {
       scored.sort((a, b) => (b.score || 0) - (a.score || 0));
       return scored.slice(0, limit);
     } catch (error: any) {
-      console.error("[SQLITE_STORE] Error en búsqueda vectorial Int8:", error.message);
+      console.error("[SQLITE_STORE] Error in Int8 vector search:", error.message);
       return [];
     }
   }
@@ -216,7 +216,7 @@ export class SqliteStore {
 
       return true;
     } catch (error: any) {
-      console.error("[SQLITE_STORE] Error insertando hecho:", error.message);
+      console.error("[SQLITE_STORE] Error inserting fact:", error.message);
       return false;
     }
   }
@@ -233,7 +233,7 @@ export class SqliteStore {
 
       return true;
     } catch (error: any) {
-      console.error("[SQLITE_STORE] Error desactivando hecho:", error.message);
+      console.error("[SQLITE_STORE] Error deactivating fact:", error.message);
       return false;
     }
   }
@@ -254,7 +254,7 @@ export class SqliteStore {
         };
       }
     } catch (error: any) {
-      console.error("[SQLITE_STORE] Error leyendo Dashboard:", error.message);
+      console.error("[SQLITE_STORE] Error reading Dashboard:", error.message);
     }
     return null;
   }
@@ -271,7 +271,7 @@ export class SqliteStore {
 
       return true;
     } catch (error: any) {
-      console.error("[SQLITE_STORE] Error guardando Dashboard:", error.message);
+      console.error("[SQLITE_STORE] Error saving Dashboard:", error.message);
       return false;
     }
   }
@@ -288,7 +288,7 @@ export class SqliteStore {
 
       return rows.map((r: any) => String(r.data));
     } catch (error: any) {
-      console.error("[SQLITE_STORE] Error obteniendo hechos recientes:", error.message);
+      console.error("[SQLITE_STORE] Error retrieving recent facts:", error.message);
       return [];
     }
   }

@@ -2,7 +2,7 @@ import { MemoryEngine } from "./MemoryEngine.js";
 import * as fs from "fs";
 
 async function runTest() {
-  console.log("🧪 [TEST] Probando AutoDream Dual y Triaje de Memorias...");
+  console.log("🧪 [TEST] Testing AutoDream Dual Output & Memory Triage...");
 
   const dbPath = "./memoria_test_dual.db";
   for (const ext of ["", "-wal", "-shm"]) {
@@ -18,26 +18,26 @@ async function runTest() {
     semanticArbitrator: true,
   });
 
-  console.log("\n📥 Inyectando datos de prueba...");
-  await memory.saveFact("[DEVELOPMENT] [B4A] Error 256X en reconexión de socket resuelto agregando Sleep(0) antes de llamadas resumibles. Regla: no ignorar llamadas resumibles.");
-  await memory.saveFact("[DIAGNOSIS] Investigando causa de sobrecalentamiento en i7-4770 del servidor principal. Aún sin solución definitiva.");
+  console.log("\n📥 Ingesting test facts...");
+  await memory.saveFact("[DEVELOPMENT] [B4A] Socket reconnection error 256X resolved by adding Sleep(0) before resumable calls. Rule: do not ignore resumable calls.");
+  await memory.saveFact("[DIAGNOSIS] Investigating overheating root cause on primary server i7-4770. Definite solution pending.");
 
-  console.log("\n⚙️ Ejecutando AutoDream (memory.consolidate())...");
+  console.log("\n⚙️ Executing AutoDream consolidation (memory.consolidate())...");
   const result = await memory.consolidate("user_test");
 
-  console.log("\n📊 RESULTADO DUAL RECOGIDO:");
+  console.log("\n📊 DUAL RESULT COLLECTED:");
   console.log("--------------------------------------------------");
   console.log("🔹 Narrative Summary (Dashboard):", result.narrativeSummary);
-  console.log("\n🔹 Dashboard Items (Pizarrón Temporal):", JSON.stringify(result.dashboard, null, 2));
-  console.log("\n🔹 Triage Memory (Memoria Permanente SQLite):", JSON.stringify(result.triageMemory, null, 2));
-  console.log("\n🔹 Open Cases (Incubadora):", JSON.stringify(result.openCases, null, 2));
+  console.log("\n🔹 Dashboard Items (Working State):", JSON.stringify(result.dashboard, null, 2));
+  console.log("\n🔹 Triage Memory (Long-term SQLite Facts):", JSON.stringify(result.triageMemory, null, 2));
+  console.log("\n🔹 Open Cases (Incubator):", JSON.stringify(result.openCases, null, 2));
   console.log("--------------------------------------------------");
 
   memory.close();
-  console.log("\n✅ Test completado con éxito.");
+  console.log("\n✅ Test completed successfully.");
 }
 
 runTest().catch((err) => {
-  console.error("❌ Error en test:", err);
+  console.error("❌ Test error:", err);
   process.exit(1);
 });

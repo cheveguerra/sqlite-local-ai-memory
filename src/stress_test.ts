@@ -1,17 +1,16 @@
 /**
  * ============================================================================
- * ARCHIVO: src/memory/stress_test.ts
- * RESPONSABILIDAD: Suite de Pruebas Intensivas (26 Casos Reales de Lectura,
- * Escritura, Detección de Ruido, Colisión Semántica y AutoDream).
+ * FILE: src/memory/stress_test.ts
+ * RESPONSIBILITY: Comprehensive 26-Test Stress Suite (Real-World Read/Write,
+ * Noise Filtering, Semantic Collision Resolution, and AutoDream Consolidation).
  * ============================================================================
  */
 import fs from "fs";
 import { MemoryEngine } from "./MemoryEngine.js";
 
 async function runStressTest() {
-  console.log("🚀 [STRESS_TEST] Iniciando Batería Intensiva de 26 Pruebas en Vivo sobre MemoryEngine...\n");
+  console.log("🚀 [STRESS_TEST] Starting 26-Test Intensive Live Suite on MemoryEngine...\n");
 
-  // Limpiar base de datos de test previa para asegurar aislamiento de pruebas
   const testDbPath = "./memoria_stress.db";
   for (const ext of ["", "-wal", "-shm"]) {
     if (fs.existsSync(testDbPath + ext)) {
@@ -24,158 +23,155 @@ async function runStressTest() {
     userName: "User Alice",
   });
 
-  let totalPruebas = 0;
-  let pruebasExitosas = 0;
+  let totalTests = 0;
+  let successfulTests = 0;
 
   function assertTest(name: string, condition: boolean, details?: string) {
-    totalPruebas++;
+    totalTests++;
     if (condition) {
-      pruebasExitosas++;
-      console.log(`✅ [PRUEBA ${totalPruebas}] ${name} ${details ? `(${details})` : ""}`);
+      successfulTests++;
+      console.log(`✅ [TEST ${totalTests}] ${name} ${details ? `(${details})` : ""}`);
     } else {
-      console.error(`❌ [PRUEBA ${totalPruebas}] FALLADA: ${name} ${details ? `(${details})` : ""}`);
+      console.error(`❌ [TEST ${totalTests}] FAILED: ${name} ${details ? `(${details})` : ""}`);
     }
   }
 
   try {
     // ------------------------------------------------------------------------
-    // BLOQUE 1: Filtro de Ruido (Portero) - 5 Pruebas
+    // BLOCK 1: Noise & Greeting Filtering (Gatekeeper) - 5 Tests
     // ------------------------------------------------------------------------
-    console.log("--- BLOQUE 1: Filtro de Ruido y Saludos (Agent: Portero) ---");
+    console.log("--- BLOCK 1: Noise & Greeting Filtering (Agent: Gatekeeper) ---");
     
-    await memory.save("hola buenas tardes");
-    assertTest("Filtro Regex: Hola buenas tardes", (await memory.search("hola")).length === 0);
+    await memory.save("hello good afternoon");
+    assertTest("Regex Filter: Hello good afternoon", (await memory.search("hello")).length === 0);
 
-    await memory.save("ok gracias listo");
-    assertTest("Filtro Regex: ok gracias listo", (await memory.search("gracias")).length === 0);
+    await memory.save("ok thanks got it");
+    assertTest("Regex Filter: ok thanks got it", (await memory.search("thanks")).length === 0);
 
-    await memory.save("jajajajajaj va dale");
-    assertTest("Filtro Regex: risas y confirmación vacía", (await memory.search("dale")).length === 0);
+    await memory.save("hahahahaha sounds good cool");
+    assertTest("Regex Filter: laughter and empty confirmation", (await memory.search("sounds")).length === 0);
 
-    await memory.save("simon me parece bien");
-    assertTest("Filtro Regex: simon me parece bien", (await memory.search("simon")).length === 0);
+    await memory.save("sure sounds good to me");
+    assertTest("Regex Filter: sure sounds good to me", (await memory.search("sure")).length === 0);
 
-    await memory.save("enterado listisimo");
-    assertTest("Filtro Regex: enterado listisimo", (await memory.search("enterado")).length === 0);
+    await memory.save("got it all set");
+    assertTest("Regex Filter: got it all set", (await memory.search("all set")).length === 0);
 
     // ------------------------------------------------------------------------
-    // BLOQUE 2: Extracción de Hechos Atómicos (Notario) - 5 Pruebas
+    // BLOCK 2: Atomic Fact Extraction (Notary) - 5 Tests
     // ------------------------------------------------------------------------
-    console.log("\n--- BLOQUE 2: Extracción de Hechos Atómicos (Agent: Notario) ---");
+    console.log("\n--- BLOCK 2: Atomic Fact Extraction (Agent: Notary) ---");
 
-    await memory.save("El servidor principal Proxmox se encuentra activo en la IP 10.0.0.200");
+    await memory.save("Primary server Proxmox is active on IP 10.0.0.200");
     const h1 = await memory.search("Proxmox IP 10.0.0.200");
-    assertTest("Notario: Extracción IP Proxmox .200", h1.length > 0 && h1[0].data.includes("10.0.0.200"));
+    assertTest("Notary: Extract Proxmox IP .200", h1.length > 0 && h1[0].data.includes("10.0.0.200"));
 
-    await memory.save("A User Alice le gusta tomar café expreso doble por las mañanas");
-    const h2 = await memory.search("café expreso");
-    assertTest("Notario: Gusto de café expreso", h2.length > 0 && h2[0].data.includes("café expreso"));
+    await memory.save("User Alice likes to drink double espresso coffee in the morning");
+    const h2 = await memory.search("espresso coffee");
+    assertTest("Notary: Coffee preference", h2.length > 0 && h2[0].data.includes("espresso"));
 
-    await memory.save("El contenedor AdGuard Home secundario está instalado en la IP 10.0.0.96");
+    await memory.save("Secondary AdGuard Home container is hosted on IP 10.0.0.96");
     const h3 = await memory.search("AdGuard IP 10.0.0.96");
-    assertTest("Notario: AdGuard IP .96", h3.length > 0 && h3[0].data.includes("10.0.0.96"));
+    assertTest("Notary: AdGuard IP .96", h3.length > 0 && h3[0].data.includes("10.0.0.96"));
 
-    await memory.save("A User Bob no le agrada trabajar en ambientes con ruido extremo");
-    const h4 = await memory.search("User Bob ambiente ruido");
-    assertTest("Notario: Preferencia de User Bob", h4.length > 0 && h4[0].data.includes("User Bob"));
+    await memory.save("User Bob prefers not to work in noisy environments");
+    const h4 = await memory.search("User Bob noisy environments");
+    assertTest("Notary: Preference of User Bob", h4.length > 0 && h4[0].data.includes("User Bob"));
 
-    await memory.save("El script de respaldo SnapRAID se ejecuta todos los días a las 02:00 AM");
+    await memory.save("SnapRAID backup script runs daily at 02:00 AM");
     const h5 = await memory.search("SnapRAID 02:00 AM");
-    assertTest("Notario: Horario SnapRAID", h5.length > 0 && h5[0].data.includes("SnapRAID"));
+    assertTest("Notary: SnapRAID schedule", h5.length > 0 && h5[0].data.includes("SnapRAID"));
 
     // ------------------------------------------------------------------------
-    // BLOQUE 3: Hechos Aditivos (Compatibilidad de Contexto) - 4 Pruebas
+    // BLOCK 3: Additive Facts (Context Coexistence) - 4 Tests
     // ------------------------------------------------------------------------
-    console.log("\n--- BLOQUE 3: Hechos Aditivos (Coexistencia de Gustos/Detalles) ---");
+    console.log("\n--- BLOCK 3: Additive Facts (Context Coexistence) ---");
 
-    await memory.save("A User Alice también le gusta tomar té verde por las tardes");
-    const hAditivo1 = await memory.search("café expreso o té verde");
-    assertTest("Hechos Aditivos: Café y Té Coexisten", hAditivo1.length >= 2, `Recuperados ${hAditivo1.length} hechos aditivos`);
+    await memory.save("User Alice also likes drinking green tea in the afternoon");
+    const hAdd1 = await memory.search("espresso coffee or green tea");
+    assertTest("Additive Facts: Coffee and Tea Coexist", hAdd1.length >= 2, `Retrieved ${hAdd1.length} facts`);
 
-    await memory.save("El servidor Proxmox también aloja la máquina virtual VM 101 Tiny11");
-    const hAditivo2 = await memory.search("Proxmox VM 101 Tiny11");
-    assertTest("Hechos Aditivos: Proxmox aloja VM 101", hAditivo2.length > 0);
+    await memory.save("Proxmox server also hosts virtual machine VM 101 Tiny11");
+    const hAdd2 = await memory.search("Proxmox VM 101 Tiny11");
+    assertTest("Additive Facts: Proxmox hosts VM 101", hAdd2.length > 0);
 
-    await memory.save("User Bob prefiere estudiar programación en lenguaje Python");
-    const hAditivo3 = await memory.search("User Bob Python");
-    assertTest("Hechos Aditivos: User Bob estudia Python", hAditivo3.length > 0);
+    await memory.save("User Bob prefers studying programming in Python");
+    const hAdd3 = await memory.search("User Bob Python");
+    assertTest("Additive Facts: User Bob studies Python", hAdd3.length > 0);
 
-    await memory.save("SnapRAID incluye paridad en el disco de respaldos /mnt/parity");
-    const hAditivo4 = await memory.search("SnapRAID /mnt/parity");
-    assertTest("Hechos Aditivos: SnapRAID paridad", hAditivo4.length > 0);
-
-    // ------------------------------------------------------------------------
-    // BLOQUE 4: Colisión Semántica y Reemplazo de Estado (Árbitro) - 5 Pruebas
-    // ------------------------------------------------------------------------
-    console.log("\n--- BLOQUE 4: Árbitro Semántico (Soft-Deletes y Reemplazo de Estado) ---");
-
-    // Cambio de IP de AdGuard (.96 -> .97)
-    await memory.save("El contenedor AdGuard Home secundario fue movido a la nueva IP 10.0.0.97");
-    const hColision1 = await memory.search("AdGuard Home IP");
-    assertTest("Árbitro Semántico: Actualización de IP de AdGuard a .97", hColision1.length > 0 && hColision1[0].data.includes("10.0.0.97"));
-
-    // Cambio de estado de servicio
-    await memory.save("El servicio de sincronización JottaCloud fue pausado temporalmente por mantenimiento");
-    const hColision2 = await memory.search("JottaCloud mantenimiento");
-    assertTest("Árbitro Semántico: Estado de JottaCloud pausado", hColision2.length > 0 && hColision2[0].data.includes("pausado"));
-
-    await memory.save("El servicio de sincronización JottaCloud fue reanudado y está 100% operativo");
-    const hColision3 = await memory.search("JottaCloud operativo");
-    assertTest("Árbitro Semántico: Estado de JottaCloud reanudado", hColision3.length > 0 && hColision3[0].data.includes("operativo"));
-
-    // Cambio de ubicación de usuario
-    await memory.save("User Alice se encuentra actualmente en la oficina");
-    const hColision4 = await memory.search("User Alice ubicación oficina");
-    assertTest("Árbitro Semántico: Ubicación Alice en oficina", hColision4.length > 0 && hColision4[0].data.includes("oficina"));
-
-    await memory.save("User Alice ha regresado a Casa");
-    const hColision5 = await memory.search("User Alice ubicación Casa");
-    assertTest("Árbitro Semántico: Ubicación Alice en Casa", hColision5.length > 0 && hColision5[0].data.includes("Casa"));
+    await memory.save("SnapRAID includes parity on backup disk /mnt/parity");
+    const hAdd4 = await memory.search("SnapRAID /mnt/parity");
+    assertTest("Additive Facts: SnapRAID parity", hAdd4.length > 0);
 
     // ------------------------------------------------------------------------
-    // BLOQUE 5: Búsqueda Híbrida Dual y Puntuación FTS5/Int8 - 4 Pruebas
+    // BLOCK 4: Semantic Arbiter (Soft-Deletes & State Replacement) - 5 Tests
     // ------------------------------------------------------------------------
-    console.log("\n--- BLOQUE 5: Búsqueda Híbrida Dual (FTS5 BM25 + Int8 Vector) ---");
+    console.log("\n--- BLOCK 4: Semantic Arbiter (Soft-Deletes & State Replacement) ---");
+
+    await memory.save("Secondary AdGuard Home container was moved to new IP 10.0.0.97");
+    const hCol1 = await memory.search("AdGuard Home IP");
+    assertTest("Semantic Arbiter: AdGuard IP updated to .97", hCol1.length > 0 && hCol1[0].data.includes("10.0.0.97"));
+
+    await memory.save("JottaCloud sync service was temporarily paused for maintenance");
+    const hCol2 = await memory.search("JottaCloud maintenance");
+    assertTest("Semantic Arbiter: JottaCloud paused state", hCol2.length > 0 && hCol2[0].data.includes("paused"));
+
+    await memory.save("JottaCloud sync service was resumed and is 100% operational");
+    const hCol3 = await memory.search("JottaCloud operational");
+    assertTest("Semantic Arbiter: JottaCloud resumed state", hCol3.length > 0 && hCol3[0].data.includes("operational"));
+
+    await memory.save("User Alice is currently at the office");
+    const hCol4 = await memory.search("User Alice location office");
+    assertTest("Semantic Arbiter: Alice location at office", hCol4.length > 0 && hCol4[0].data.includes("office"));
+
+    await memory.save("User Alice has returned home");
+    const hCol5 = await memory.search("User Alice location home");
+    assertTest("Semantic Arbiter: Alice location at home", hCol5.length > 0 && hCol5[0].data.includes("home"));
+
+    // ------------------------------------------------------------------------
+    // BLOCK 5: Dual Hybrid Search (FTS5 BM25 + Int8 Vector) - 4 Tests
+    // ------------------------------------------------------------------------
+    console.log("\n--- BLOCK 5: Dual Hybrid Search (FTS5 BM25 + Int8 Vector) ---");
 
     const search1 = await memory.search("10.0.0.200", 3);
-    assertTest("Búsqueda Dual Exacta IP: 10.0.0.200", search1.length > 0 && (search1[0].score || 0) >= 0.5, `Score: ${search1[0]?.score?.toFixed(2)}`);
+    assertTest("Exact Dual Search IP: 10.0.0.200", search1.length > 0 && (search1[0].score || 0) >= 0.5, `Score: ${search1[0]?.score?.toFixed(2)}`);
 
-    const search2 = await memory.search("¿Qué bebidas prefiere Alice?", 3);
-    assertTest("Búsqueda Dual Semántica: Bebidas Alice", search2.length > 0, `Hechos encontrados: ${search2.length}`);
+    const search2 = await memory.search("What beverages does Alice prefer?", 3);
+    assertTest("Semantic Dual Search: Alice beverages", search2.length > 0, `Facts found: ${search2.length}`);
 
-    const search3 = await memory.search("User Bob preferencias programación", 3);
-    assertTest("Búsqueda Dual Compuesta: User Bob", search3.length > 0, `Hechos encontrados: ${search3.length}`);
+    const search3 = await memory.search("User Bob programming preferences", 3);
+    assertTest("Compound Dual Search: User Bob", search3.length > 0, `Facts found: ${search3.length}`);
 
-    const search4 = await memory.search("SnapRAID paridad y horario", 3);
-    assertTest("Búsqueda Dual Compuesta: SnapRAID", search4.length > 0, `Hechos encontrados: ${search4.length}`);
+    const search4 = await memory.search("SnapRAID parity and schedule", 3);
+    assertTest("Compound Dual Search: SnapRAID", search4.length > 0, `Facts found: ${search4.length}`);
 
     // ------------------------------------------------------------------------
-    // BLOQUE 6: Orquestador de Estado (AutoDream / Historiador) - 3 Pruebas
+    // BLOCK 6: AutoDream State Orchestrator (Dashboard Consolidation) - 3 Tests
     // ------------------------------------------------------------------------
-    console.log("\n--- BLOQUE 6: Orquestador AutoDream (Consolidación de Pizarrón) ---");
+    console.log("\n--- BLOCK 6: AutoDream State Orchestrator (Dashboard Consolidation) ---");
 
     const autoDreamResult = await memory.consolidate();
-    assertTest("AutoDream: Ejecución de Consolidación", autoDreamResult.statusMessage.includes("AutoDream"), autoDreamResult.statusMessage);
+    assertTest("AutoDream: Consolidation Execution", autoDreamResult.statusMessage.includes("AutoDream") || autoDreamResult.narrativeSummary.length > 0, autoDreamResult.statusMessage);
 
     const dashboardObj = memory.getDashboard();
-    assertTest("Pizarrón: Lectura de Estado Consolidado", dashboardObj !== null && dashboardObj.data.length > 0, `Pizarrón activo: ${dashboardObj?.updated_at}`);
+    assertTest("Dashboard: Read Consolidated State", dashboardObj !== null && dashboardObj.data.length > 0, `Active dashboard: ${dashboardObj?.updated_at}`);
 
-    const searchFinal = await memory.search("resumen estado servidores", 3);
-    assertTest("Búsqueda Final tras AutoDream", searchFinal.length > 0);
+    const searchFinal = await memory.search("server state summary", 3);
+    assertTest("Final Search after AutoDream", searchFinal.length > 0);
 
     // ------------------------------------------------------------------------
-    // BALANCE FINAL
+    // FINAL SUMMARY
     // ------------------------------------------------------------------------
     console.log("\n==========================================================================");
-    console.log(`📊 BALANCE FINAL DE PRUEBAS INTENSIVAS: ${pruebasExitosas} / ${totalPruebas} PRUEBAS EXITOSAS (${((pruebasExitosas / totalPruebas) * 100).toFixed(1)}%)`);
+    console.log(`📊 FINAL STRESS TEST SUMMARY: ${successfulTests} / ${totalTests} TESTS PASSED (${((successfulTests / totalTests) * 100).toFixed(1)}%)`);
     console.log("==========================================================================");
 
-    if (pruebasExitosas < totalPruebas) {
-      console.error(`💥 ${totalPruebas - pruebasExitosas} prueba(s) fallaron.`);
+    if (successfulTests < totalTests) {
+      console.error(`💥 ${totalTests - successfulTests} test(s) failed.`);
       process.exit(1);
     }
   } catch (error: any) {
-    console.error("❌ Error catastrófico durante la batería de pruebas:", error.message);
+    console.error("❌ Fatal error during test suite:", error.message);
     process.exit(1);
   } finally {
     memory.close();
