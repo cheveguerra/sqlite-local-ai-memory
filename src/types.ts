@@ -57,6 +57,8 @@ export interface MemoryConfig {
   customPrompts?: CustomPrompts;
   /** Enable detailed multi-stage console debugging logs (default: false, env: MEMORY_DEBUG) */
   debug?: boolean;
+  /** Default source tag for facts inserted during this session (e.g. 'TOTALCONNECT', 'SQLITE_MEMORY') */
+  defaultSource?: string;
 }
 
 export interface MemoryHit {
@@ -76,10 +78,18 @@ export interface AtomicFact {
   category: string;
 }
 
+/**
+ * Represents a single active state item in the unified global dashboard.
+ */
 export interface DashboardItem {
+  /** Unique UUID identifying this working state item */
   id: string;
+  /** Unix epoch timestamp (ms) when this item was recorded or updated */
   ts: number;
+  /** Content text, prefixed by [PROJECT_TAG] or [INCUBATOR/OPEN_CASE:PROJECT_TAG] */
   txt: string;
+  /** Subproject or client origin (e.g. 'TOTALCONNECT', 'SQLITE_MEMORY') for cross-topic preservation */
+  source?: string;
 }
 
 export interface TriageItem {
@@ -87,9 +97,17 @@ export interface TriageItem {
   fact: string;
 }
 
+/**
+ * Represents an unresolved technical incident or investigation in the Incubator.
+ */
 export interface OpenCaseItem {
+  /** Unique UUID identifying this open investigation case */
   id: string;
+  /** Incident description with technical symptoms, error codes, and impacted paths */
   incident: string;
+  /** Originating project or client source */
+  source?: string;
+  /** ISO timestamp when the case was first registered */
   created_at?: string;
 }
 

@@ -276,17 +276,39 @@ export class SqliteStore {
     }
   }
 
-  public getRecentFactsSince(sinceIso: string, userId: string = "user_default"): string[] {
+  /**
+   * Retrieves recent memory facts created on or after the specified timestamp.
+   * Excludes the Dashboard global singleton record (DASHBOARD_UUID).
+   * 
+   * @param sinceIso - ISO 8601 timestamp string marking the start of the consolidation window.
+   * @param userId - Target user identifier (defaults to 'user_default').
+   * @param sourceFilter - Optional case-insensitive source label filter (e.g. 'TOTALCONNECT').
+   * @returns Array of objects containing the fact text (`data`) and its origin (`source`).
+   */
+  public getRecentFactsSince(
+    sinceIso: string,
+    userId: string = "user_default",
+    sourceFilter?: string
+  ): Array<{ data: string; source: string }> {
     try {
-      const rows = this.db.prepare(`
-        SELECT data
+      let query = `
+        SELECT data, source
         FROM recuerdos_vectores
         WHERE user_id = ? AND point_id != ?
           AND created_at >= ?
-        ORDER BY created_at ASC
-      `).all(userId, DASHBOARD_UUID, sinceIso);
+      `;
+      const params: any[] = [userId, DASHBOARD_UUID, sinceIso];
+      if (sourceFilter) {
+        query += ` AND UPPER(source) = ?`;
+        params.push(sourceFilter.toUpperCase());
+      }
+      query += ` ORDER BY created_at ASC`;
+      const rows = this.db.prepare(query).all(...params);
 
-      return rows.map((r: any) => String(r.data));
+      return rows.map((r: any) => ({
+        data: String(r.data),
+        source: String(r.source || "system"),
+      }));
     } catch (error: any) {
       console.error("[SQLITE_STORE] Error retrieving recent facts:", error.message);
       return [];

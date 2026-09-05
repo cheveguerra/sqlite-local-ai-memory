@@ -26,7 +26,7 @@ const memory = new MemoryEngine({
 
 const server = new McpServer({
   name: "sqlite-local-ai-memory",
-  version: "1.2.0",
+  version: "1.3.0",
 });
 
 // Tool 1: save_fact
@@ -35,13 +35,14 @@ server.tool(
   "Stores a new fact, preference, or technical knowledge directly in memory.",
   {
     fact: z.string().min(3, "Fact is too short to save.").max(2000).describe("The fact or information to save."),
+    source: z.string().optional().describe("Source or project tag, e.g. 'TOTALCONNECT', 'SQLITE_MEMORY' (optional)."),
   },
-  async ({ fact }, { signal }) => {
+  async ({ fact, source }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      await memory.saveFact(fact, undefined, { signal });
+      await memory.saveFact(fact, undefined, { signal, source });
       return {
         content: [
           {
@@ -169,13 +170,14 @@ server.tool(
   "Runs background memory maintenance (AutoDream): summarizes recent progress, cleans up outdated notes, saves key technical takeaways, and updates the active project board.",
   {
     userId: z.string().optional().describe("User ID to consolidate (optional, default: user_default)."),
+    source: z.string().optional().describe("Current project or source being consolidated (e.g. 'TOTALCONNECT'). Preserves items from other projects in dashboard."),
   },
-  async ({ userId }, { signal }) => {
+  async ({ userId, source }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      const result = await memory.consolidate(userId);
+      const result = await memory.consolidate(userId, source);
 
       const triageSection = result.triageMemory && result.triageMemory.length > 0
         ? `\n\n📦 Injected Triage Cards (${result.triageMemory.length}):\n` +

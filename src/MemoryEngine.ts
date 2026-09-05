@@ -24,17 +24,35 @@ export class MemoryEngine {
   }
 
   /**
-   * Saves text or conversation input, automatically extracting atomic facts.
+   * Saves text or conversation input, automatically filtering noise with Gatekeeper
+   * and extracting atomic facts using the Notary compiler.
+   * 
+   * @param text - Input text or conversational dialogue.
+   * @param userId - Target user identifier (defaults to configured userId).
+   * @param opts - Execution options including optional AbortSignal and subproject `source` tag.
    */
-  public async save(text: string, userId: string = this.userId, opts?: { signal?: AbortSignal }): Promise<void> {
-    await this.agents.saveMemory(text, userId, opts?.signal);
+  public async save(
+    text: string,
+    userId: string = this.userId,
+    opts?: { signal?: AbortSignal; source?: string }
+  ): Promise<void> {
+    await this.agents.saveMemory(text, userId, opts?.signal, opts?.source);
   }
 
   /**
-   * Saves a pre-formatted fact directly without running through the Notary compiler.
+   * Saves a pre-formatted fact directly into memory without running through the Notary compiler.
+   * Runs through the Semantic Arbiter to detect collisions or updates against existing state.
+   * 
+   * @param fact - Direct fact string (e.g. '[TECHNICAL] Database upgraded to v2').
+   * @param userId - Target user identifier.
+   * @param opts - Execution options including optional AbortSignal and subproject `source` tag.
    */
-  public async saveFact(fact: string, userId: string = this.userId, opts?: { signal?: AbortSignal }): Promise<void> {
-    await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal);
+  public async saveFact(
+    fact: string,
+    userId: string = this.userId,
+    opts?: { signal?: AbortSignal; source?: string }
+  ): Promise<void> {
+    await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
   }
 
   /**
@@ -125,9 +143,16 @@ export class MemoryEngine {
 
   /**
    * Executes the AutoDream cognitive pruning and state consolidation cycle.
+   * Analyzes recent facts, prunes TTL-expired working notes, graduates resolved
+   * incubator cases into long-term memory, and produces a unified executive narrative.
+   * 
+   * @param userId - Target user identifier.
+   * @param source - Optional subproject or source being consolidated (e.g. 'TOTALCONNECT').
+   *                 When provided, guarantees deterministic cross-topic preservation of other projects.
+   * @returns AutoDreamResult containing executive narrative, active dashboard, and triage facts.
    */
-  public async consolidate(userId: string = this.userId): Promise<AutoDreamResult> {
-    return await this.agents.runAutoDream(userId);
+  public async consolidate(userId: string = this.userId, source?: string): Promise<AutoDreamResult> {
+    return await this.agents.runAutoDream(userId, source);
   }
 
   /**

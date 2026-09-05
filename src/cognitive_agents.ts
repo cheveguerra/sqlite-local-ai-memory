@@ -77,6 +77,7 @@ export class CognitiveAgents {
       dashboardTTLHours: config.dashboardTTLHours || 12,
       customPrompts: config.customPrompts || {},
       debug: config.debug !== undefined ? config.debug : (process.env.MEMORY_DEBUG === "true" || process.env.DEBUG === "true"),
+      defaultSource: config.defaultSource || "system",
     };
     this.store = store;
   }
@@ -440,11 +441,23 @@ SUPREME RULE: Retain all proper nouns, project names, and technical terms. Outpu
 
 
 
+  /**
+   * Directly ingests a unified memory fact into SQLite (FTS5 + Int8 Vector).
+   * Automatically performs consistency auditing via Semantic Arbiter if enabled,
+   * deactivating superseded facts and tagging the record with its origin source.
+   * 
+   * @param fact - Complete fact string to ingest.
+   * @param userId - Target user identifier.
+   * @param protectedIds - Array of newly generated UUIDs that should not be superseded in the same batch.
+   * @param signal - Optional AbortSignal.
+   * @param source - Project or origin identifier (e.g. 'TOTALCONNECT', 'system').
+   */
   public async injectUnifiedFact(
     fact: string,
     userId: string = this.config.userId,
     protectedIds: string[] = [],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    source: string = this.config.defaultSource || "system"
   ): Promise<void> {
     const vector = await this.getEmbedding(fact, signal);
     let matches: Array<{ id: string; payload: { data: string }; score: number }> = [];
@@ -499,7 +512,7 @@ If the NEW FACT is additive or new, return replace_index = 0. Return strict JSON
         console.warn("⚠️ [COGNITIVE] Semantic Arbiter failed, keeping existing facts:", err.message);
       }
     } else if (!this.config.semanticArbitrator && matches.length > 0 && matches[0].score > 0.95) {
-      const ok = this.store.insertMemoryFact(matches[0].id, fact, userId, vector, "system");
+      const ok = this.store.insertMemoryFact(matches[0].id, fact, userId, vector, source);
       if (!ok) {
         throw new Error(`Failed to update fact in SQLite: "${fact.slice(0, 50)}..."`);
       }
@@ -507,7 +520,7 @@ If the NEW FACT is additive or new, return replace_index = 0. Return strict JSON
     }
 
     if (!bypassInsert) {
-      const ok = this.store.insertMemoryFact(pointId, fact, userId, vector, "system");
+      const ok = this.store.insertMemoryFact(pointId, fact, userId, vector, source);
       if (!ok) {
         throw new Error(`Failed to insert fact in SQLite: "${fact.slice(0, 50)}..."`);
       }
@@ -516,7 +529,24 @@ If the NEW FACT is additive or new, return replace_index = 0. Return strict JSON
 
 
 
-  public async saveMemory(text: string, userId: string = this.config.userId, signal?: AbortSignal): Promise<void> {
+  /**
+   * Processes raw text or conversational turns through the cognitive pipeline:
+   * Layer 1: Regex chatter filtering.
+   * Layer 2: Gatekeeper noise classifier.
+   * Layer 3: Notary atomic fact compilation.
+   * Layer 4: Semantic Arbiter collision auditing and SQLite persistence with source tagging.
+   * 
+   * @param text - Raw message or conversational turn.
+   * @param userId - Target user identifier.
+   * @param signal - Optional AbortSignal.
+   * @param source - Subproject or client origin label.
+   */
+  public async saveMemory(
+    text: string,
+    userId: string = this.config.userId,
+    signal?: AbortSignal,
+    source: string = this.config.defaultSource || "system"
+  ): Promise<void> {
     const messageMatch = text.match(/\[Mensaje a extraer\]: "(.*?)"/) || text.match(/\[Message to extract\]: "(.*?)"/);
     const pureMessage = messageMatch ? messageMatch[1].trim().toLowerCase() : text.trim().toLowerCase();
 
@@ -568,7 +598,7 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
           const factText = item.fact || item.dato || "";
           if (factText) {
             const finalFact = `[${category}] ${factText}`;
-            await this.injectUnifiedFact(finalFact, userId, protectedIds, signal);
+            await this.injectUnifiedFact(finalFact, userId, protectedIds, signal, source);
           }
         }
       }
@@ -580,7 +610,23 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
 
 
 
-  public async runAutoDream(userId: string = this.config.userId): Promise<AutoDreamResult> {
+  /**
+   * Orchestrates the AutoDream consolidation cycle:
+   * 1. Applies deterministic TTL pruning on working notes.
+   * 2. Auto-archives expired unresolved incubator cases into long-term memory.
+   * 3. Executes the State Orchestrator agent to generate executive narrative and triage cards.
+   * 4. Enforces the Deterministic Cross-Topic Preservation Guardrail: items from other
+   *    projects are guaranteed never to be dropped or overwritten.
+   * 5. Saves the updated unified dashboard singleton in SQLite under DASHBOARD_UUID.
+   * 
+   * @param userId - Target user identifier.
+   * @param currentSource - Subproject or client source triggering consolidation (e.g. 'TOTALCONNECT').
+   * @returns AutoDreamResult with executive summary, active dashboard items, and triage cards.
+   */
+  public async runAutoDream(
+    userId: string = this.config.userId,
+    currentSource?: string
+  ): Promise<AutoDreamResult> {
     const NOW = Date.now();
     const TTL_MS = this.config.dashboardTTLHours * 60 * 60 * 1000;
 
@@ -602,16 +648,16 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
 
     // Auto-archive expired unresolved incubator cases into long-term memory
     for (const item of expiredItems) {
-      if (item.txt.includes("[INCUBATOR/OPEN_CASE]")) {
-        const rawIncident = item.txt.replace("[INCUBATOR/OPEN_CASE]", "").trim();
+      if (item.txt.includes("[INCUBATOR/OPEN_CASE")) {
+        const rawIncident = item.txt.replace(/\[INCUBATOR\/OPEN_CASE(:[A-Za-z0-9_-]+)?\]/, "").trim();
         const unresolvedFact = `[TECHNICAL] [UNRESOLVED_CASE] [SYMPTOM]: ${rawIncident} [STATUS]: Unresolved due to inactivity after TTL expiration.`;
-        await this.injectUnifiedFact(unresolvedFact, userId);
+        await this.injectUnifiedFact(unresolvedFact, userId, [], undefined, item.source || currentSource || "system");
       }
     }
 
     // Option B: Calculate dynamic consolidation window based on active open cases in dashboard
     let effectiveConsolidationDate = lastConsolidationDate;
-    const openCaseItems = activeDashboard.filter((item) => item.txt.includes("[INCUBATOR/OPEN_CASE]"));
+    const openCaseItems = activeDashboard.filter((item) => item.txt.includes("[INCUBATOR/OPEN_CASE"));
     if (openCaseItems.length > 0) {
       const minTs = Math.min(...openCaseItems.map((item) => item.ts));
       if (!isNaN(minTs) && minTs > 0) {
@@ -619,7 +665,7 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
       }
     }
 
-    const newFacts = this.store.getRecentFactsSince(effectiveConsolidationDate, userId);
+    const newFacts = this.store.getRecentFactsSince(effectiveConsolidationDate, userId, currentSource);
 
     if (newFacts.length === 0) {
       if (prunedFactsCount > 0) {
@@ -647,8 +693,12 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
 
     const defaultOrchestrator = `You are the Active State Orchestrator and Long-Term Memory Compiler (AutoDream).
 Your task is to analyze recent facts and current working state, producing a strict JSON response with dual outputs:
-1. "narrative_summary": A clear executive summary of active working context for the user's dashboard.
-2. "dashboard": Array of active working items {"id": string, "ts": number, "txt": string}.
+1. "narrative_summary": A clear executive summary of active working context for the user's dashboard. Structured clearly by project tags (e.g., [PROJECT_A], [PROJECT_B]) if multiple projects exist.
+2. "dashboard": Array of active working items {"id": string, "ts": number, "txt": string, "source"?: string}.
+   CRITICAL MULTI-TOPIC PRESERVATION RULE:
+   - If the dashboard contains items or open cases from other projects (e.g. tagged with [OTHER_PROJECT]), you MUST PRESERVE THEM EXACTLY AS THEY ARE.
+   - Do NOT delete or overwrite items belonging to other projects unless the new facts explicitly resolve or update them.
+   - Only update, resolve, or append items relevant to the current project/context being consolidated.
 3. "triage_memory": Array of consolidated facts to inject into long-term memory:
    CRITICAL REQUIREMENT FOR TRIAGE FACTS:
    - Maximum Information Density: Include specific technical details, exact error codes, file paths, parameters, software versions, and concrete values. NEVER use vague summaries like "fixed issue" or "updated config".
@@ -658,13 +708,17 @@ Your task is to analyze recent facts and current working state, producing a stri
      * Unresolved cases: format "fact" as "[TECHNICAL] [UNRESOLVED_CASE] [SYMPTOM]: <Exact symptom> [DIAGNOSIS_ATTEMPTED]: <Attempted fixes> [STATUS]: Unresolved due to inactivity"
      * User preferences: format "fact" as "[PERSONAL] [PREFERENCE] <Specific detailed user preference>"
      * Project decisions: format "fact" as "[DEVELOPMENT] [ProjectName] <Specific milestone or architecture decision>"
-4. "open_cases": Array of {"id": string, "incident": string} for unresolved diagnostics/investigations. Keep unresolved cases in dashboard ONLY; do NOT place them in triage_memory until resolved.
+4. "open_cases": Array of {"id": string, "incident": string, "source"?: string} for unresolved diagnostics/investigations. Keep unresolved cases in dashboard ONLY; do NOT place them in triage_memory until resolved.
    CRITICAL FOR OPEN CASES: "incident" MUST store the detailed initial symptom, error codes, affected file paths, and context from NEW_FACTS so that when a solution is reached in a future AutoDream cycle, the complete 4-block triage record can be assembled without losing past context.
 
 Return strict JSON matching schema. Retain primary user's native language.`;
 
     const systemPrompt = this.config.customPrompts?.stateOrchestratorSystem || this.config.customPrompts?.historiadorSystem || defaultOrchestrator;
-    const userPrompt = `CURRENT_TIMESTAMP: ${NOW}\nCURRENT_DASHBOARD: ${JSON.stringify(activeDashboard)}\nNEW_FACTS: ${JSON.stringify(newFacts)}`;
+    const factsFormatted = newFacts.map((f) => {
+      const srcTag = `[${f.source.toUpperCase()}]`;
+      return f.data.startsWith(srcTag) ? f.data : `${srcTag} ${f.data}`;
+    });
+    const userPrompt = `CURRENT_TIMESTAMP: ${NOW}\nCURRENT_SOURCE: ${currentSource || "ALL"}\nCURRENT_DASHBOARD: ${JSON.stringify(activeDashboard)}\nNEW_FACTS: ${JSON.stringify(factsFormatted)}`;
 
     try {
       const rawRes = await this.executeAgent(this.getAgentsMatrix().STATE_ORCHESTRATOR, systemPrompt, userPrompt, true);
@@ -686,17 +740,72 @@ Return strict JSON matching schema. Retain primary user's native language.`;
         ? rawCases.map((c: any) => ({
             id: c.id || crypto.randomUUID(),
             incident: c.incident || c.incidente || "",
+            source: c.source || currentSource,
           }))
         : [];
 
+      // Ensure source is populated on all items in newDashboard
+      for (const item of newDashboard) {
+        if (!item.source) {
+          const match = item.txt.match(/^\[INCUBATOR\/OPEN_CASE:([A-Za-z0-9_-]+)\]/i) || item.txt.match(/^\[([A-Za-z0-9_-]+)\]/);
+          if (match) {
+            item.source = match[1].toUpperCase();
+          } else if (currentSource) {
+            item.source = currentSource.toUpperCase();
+          }
+        }
+      }
+
       // Incubator: integrate open cases into active dashboard if not already present
       for (const openCase of openCasesList) {
-        if (openCase && openCase.incident && !newDashboard.some((d) => d.txt.includes(openCase.incident))) {
+        if (!openCase || !openCase.incident) continue;
+        let rawInc = openCase.incident.trim();
+        let caseSource = openCase.source;
+        const tagMatch = rawInc.match(/^\[([A-Za-z0-9_-]+)\]/);
+        if (tagMatch) {
+          caseSource = tagMatch[1];
+          rawInc = rawInc.replace(/^\[([A-Za-z0-9_-]+)\]\s*/, "").trim();
+        }
+        const incTagMatch = rawInc.match(/^\[INCUBATOR\/OPEN_CASE:([A-Za-z0-9_-]+)\]/i);
+        if (incTagMatch) {
+          caseSource = incTagMatch[1];
+          rawInc = rawInc.replace(/^\[INCUBATOR\/OPEN_CASE:([A-Za-z0-9_-]+)\]\s*/i, "").trim();
+        } else {
+          rawInc = rawInc.replace(/^\[INCUBATOR\/OPEN_CASE\]\s*/i, "").trim();
+        }
+        caseSource = caseSource || currentSource;
+        const tag = caseSource ? `[INCUBATOR/OPEN_CASE:${caseSource.toUpperCase()}]` : `[INCUBATOR/OPEN_CASE]`;
+        const formattedTxt = `${tag} ${rawInc}`;
+
+        const alreadyExists = newDashboard.some(
+          (d) => d.txt.toLowerCase().includes(rawInc.toLowerCase()) || d.id === openCase.id
+        );
+        if (!alreadyExists) {
           newDashboard.push({
             id: openCase.id || crypto.randomUUID(),
             ts: NOW,
-            txt: `[INCUBATOR/OPEN_CASE] ${openCase.incident}`,
+            txt: formattedTxt,
+            source: caseSource,
           });
+        }
+      }
+
+      // Deterministic Preservation Guardrail: items from other sources are NEVER dropped
+      if (currentSource) {
+        const otherItems = activeDashboard.filter((item) => {
+          if (item.source && item.source.toUpperCase() !== currentSource.toUpperCase()) return true;
+          const tagMatch = item.txt.match(/^\[([A-Za-z0-9_-]+)\]/);
+          if (tagMatch && tagMatch[1].toUpperCase() !== currentSource.toUpperCase()) return true;
+          const incubatorMatch = item.txt.match(/^\[INCUBATOR\/OPEN_CASE:([A-Za-z0-9_-]+)\]/);
+          if (incubatorMatch && incubatorMatch[1].toUpperCase() !== currentSource.toUpperCase()) return true;
+          return false;
+        });
+
+        for (const other of otherItems) {
+          const exists = newDashboard.some((d) => d.id === other.id || d.txt === other.txt);
+          if (!exists) {
+            newDashboard.push(other);
+          }
         }
       }
 
@@ -710,7 +819,7 @@ Return strict JSON matching schema. Retain primary user's native language.`;
         if (item && item.fact) {
           const prefix = item.type ? `[${item.type}] ` : "";
           const finalFact = item.fact.startsWith("[") ? item.fact : `${prefix}${item.fact}`;
-          await this.injectUnifiedFact(finalFact, userId);
+          await this.injectUnifiedFact(finalFact, userId, [], undefined, currentSource || "system");
         }
       }
 
