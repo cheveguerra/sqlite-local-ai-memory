@@ -168,11 +168,13 @@ async function runStressTest() {
 
     if (successfulTests < totalTests) {
       console.error(`💥 ${totalTests - successfulTests} test(s) failed.`);
-      process.exit(1);
+      // FIX R3-1.5: set exitCode instead of calling process.exit() so the
+      // finally block below always runs and closes the SQLite connection cleanly.
+      process.exitCode = 1;
     }
   } catch (error: any) {
     console.error("❌ Fatal error during test suite:", error.message);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     memory.close();
   }

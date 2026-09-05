@@ -1,13 +1,13 @@
 # Contexto del Proyecto: sqlite-local-ai-memory
 
 ## 1. Estado y Versión
-- **Versión:** 1.2.0 (Lista para publicación NPM / GitHub)
+- **Versión:** 1.3.2 (Lista para publicación NPM / GitHub)
 - **Foco Activo:** Motor de memoria atómica local con salida dual AutoDream, Incubadora de casos abiertos y RAG Híbrido (FTS5 BM25 + Vectores Int8).
 - **Naturaleza:** Biblioteca Node.js / TypeScript y Servidor MCP desacoplado 100% en inglés técnico.
 
 ## 2. Mapa de Componentes y Módulos
 - **`MemoryEngine.ts`:** Fachada principal exportable (`save`, `saveFact`, `search`, `getDashboard`, `consolidate`, `contextualizeQuery`).
-- **`sqlite_store.ts`:** Motor SQLite bare-metal (WAL + mmap 256MB). FTS5 BM25 + similitud coseno Int8 cuantizada en memoria.
+- **`sqlite_store.ts`:** Motor SQLite bare-metal (TRUNCATE por defecto para discos de red/NFS/nube; WAL + mmap 256MB opcional en local vía `SQLITE_JOURNAL_MODE=WAL`). FTS5 BM25 + similitud coseno Int8 cuantizada en memoria.
 - **`cognitive_agents.ts`:** Matriz de agentes de IA (`GATEKEEPER`, `QUERY_EXPANDER`, `NOTARY`, `STATE_ORCHESTRATOR`, `SEMANTIC_ARBITER`, `EMBEDDER`) con AutoDream dual y fallback multi-proveedor (Ollama / Gemini).
 - **`mcp_server.ts`:** Servidor MCP estándar (Stdio) con herramientas `save_fact`, `search_memory`, `get_current_state` y esquemas Zod.
 - **`types.ts`:** Tipos e interfaces públicas (`MemoryConfig`, `AutoDreamResult`, `TriageItem`, `OpenCaseItem`, `MemoryHit`).

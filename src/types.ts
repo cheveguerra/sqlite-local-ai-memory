@@ -10,6 +10,9 @@ export const CONFIG_USER = {
   ID: "user_default",
 };
 
+/** Standard vector dimensionality for the hybrid retrieval engine */
+export const EMBEDDING_DIM = 768;
+
 export interface ExecutionOptions {
   signal?: AbortSignal;
 }

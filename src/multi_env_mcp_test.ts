@@ -109,8 +109,6 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
       passed: isText2,
       details: `Dashboard returned in ${envName}`,
     });
-
-    await client.close();
   } catch (err: any) {
     console.error(`❌ Error testing ${envName}:`, err.message);
     results.push({
@@ -120,6 +118,10 @@ async function runMcpEnvTest(envName: string, dbPath: string, envVars: Record<st
       passed: false,
       details: err.message,
     });
+  } finally {
+    try {
+      await client.close();
+    } catch (_) {}
   }
 }
 

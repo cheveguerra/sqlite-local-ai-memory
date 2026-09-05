@@ -4,15 +4,42 @@
  * RESPONSIBILITY: Primary Exportable Facade Class (Library + MCP).
  * ============================================================================
  */
-import type { MemoryConfig, MemoryHit, AutoDreamResult } from "./types.js";
+import { type MemoryConfig, type MemoryHit, type AutoDreamResult, EMBEDDING_DIM } from "./types.js";
 import { SqliteStore } from "./sqlite_store.js";
 import { CognitiveAgents } from "./cognitive_agents.js";
+
+/**
+ * KeyedMutex: Guarantees deterministic serialization of asynchronous write operations
+ * per user ID, eliminating Lost Updates and TOCTOU race conditions.
+ */
+class KeyedMutex {
+  private queues = new Map<string, Promise<void>>();
+
+  async run<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.queues.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    // FIX R3-1.1: store `tail` directly (not a derived .then() promise) so the
+    // identity comparison below correctly detects whether we are the last waiter.
+    const tail = new Promise<void>((resolve) => (release = resolve));
+    this.queues.set(key, tail);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      // Only delete the entry if nobody else enqueued behind us.
+      if (this.queues.get(key) === tail) this.queues.delete(key);
+    }
+  }
+}
 
 export class MemoryEngine {
   private store: SqliteStore;
   private agents: CognitiveAgents;
   private userId: string;
   private debug: boolean;
+  private writeMutex = new KeyedMutex();
+  private backfillInFlight = new Set<string>();
 
   constructor(config: MemoryConfig = {}) {
     this.userId = config.userId || "user_default";
@@ -36,7 +63,9 @@ export class MemoryEngine {
     userId: string = this.userId,
     opts?: { signal?: AbortSignal; source?: string }
   ): Promise<void> {
-    await this.agents.saveMemory(text, userId, opts?.signal, opts?.source);
+    return this.writeMutex.run(userId, async () => {
+      await this.agents.saveMemory(text, userId, opts?.signal, opts?.source);
+    });
   }
 
   /**
@@ -52,7 +81,9 @@ export class MemoryEngine {
     userId: string = this.userId,
     opts?: { signal?: AbortSignal; source?: string }
   ): Promise<void> {
-    await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
+    return this.writeMutex.run(userId, async () => {
+      await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
+    });
   }
 
   /**
@@ -75,11 +106,16 @@ export class MemoryEngine {
     }
 
     let vecHits: MemoryHit[] = [];
-    if (queryVec.length === 768) {
+    if (queryVec.length === EMBEDDING_DIM) {
       vecHits = this.store.searchVectorInt8(queryVec, limit * 2, userId);
-      // Trigger lazy backfill for facts that were saved without vectors
-      this.store.backfillMissingVectors((txt) => this.agents.getEmbedding(txt, opts?.signal), userId)
-        .catch((err) => console.error("⚠️ [MemoryEngine] Lazy backfill failed in background:", err.message));
+      // FIX R2-2: pass `undefined` (not opts?.signal) so backfill survives
+      // even if the MCP client cancels the originating search request.
+      if (!this.backfillInFlight.has(userId)) {
+        this.backfillInFlight.add(userId);
+        this.store.backfillMissingVectors((txt) => this.agents.getEmbedding(txt, undefined), userId)
+          .catch((err) => console.error("⚠️ [MemoryEngine] Lazy backfill failed in background:", err.message))
+          .finally(() => this.backfillInFlight.delete(userId));
+      }
     }
 
     const maxRankAbs = Math.max(...ftsHits.map((h) => Math.abs(h.rank ?? 0)), 1);
@@ -151,8 +187,14 @@ export class MemoryEngine {
    *                 When provided, guarantees deterministic cross-topic preservation of other projects.
    * @returns AutoDreamResult containing executive narrative, active dashboard, and triage facts.
    */
-  public async consolidate(userId: string = this.userId, source?: string): Promise<AutoDreamResult> {
-    return await this.agents.runAutoDream(userId, source);
+  public async consolidate(
+    userId: string = this.userId,
+    source?: string,
+    opts?: { signal?: AbortSignal }
+  ): Promise<AutoDreamResult> {
+    return this.writeMutex.run(userId, async () => {
+      return await this.agents.runAutoDream(userId, source, opts?.signal);
+    });
   }
 
   /**
@@ -163,7 +205,7 @@ export class MemoryEngine {
   }
 
   /**
-   * Gracefully closes the SQLite WAL/mmap database connection.
+   * Gracefully closes the SQLite database connection.
    */
   public close(): void {
     this.store.close();

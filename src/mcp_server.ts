@@ -26,8 +26,27 @@ const memory = new MemoryEngine({
 
 const server = new McpServer({
   name: "sqlite-local-ai-memory",
-  version: "1.3.0",
+  version: "1.3.2",
 });
+
+function safeErrorMessage(error: any, fallbackContext: string): string {
+  if (!error) return `Error during ${fallbackContext}.`;
+  let msg = typeof error.message === "string" ? error.message : String(error);
+  // FIX R3-1.7: redact all known API key formats to prevent credential leakage.
+  msg = msg.replace(/AIzaSy[A-Za-z0-9_-]{33}/g, "AIzaSy***");        // Gemini
+  msg = msg.replace(/\bsk-or-[A-Za-z0-9_-]+/g, "sk-or-***");          // OpenRouter
+  msg = msg.replace(/\bsk-[A-Za-z0-9_-]{20,}/g, "sk-***");            // OpenAI
+  msg = msg.replace(/Bearer\s+[A-Za-z0-9_.\-]+/gi, "Bearer ***");      // Generic Bearer
+  const firstLine = msg.split("\n")[0].trim();
+  return firstLine || `Error during ${fallbackContext}.`;
+}
+
+// FIX R3-1.4: source must be alphanumeric + underscore/dash only (max 64 chars).
+// Prevents bracket injection that could corrupt the tag-parsing regex in runAutoDream.
+const SOURCE_TAG = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}$/, "source must be alphanumeric (A-Z, 0-9, _ or -), max 64 characters.")
+  .optional();
 
 // Tool 1: save_fact
 server.tool(
@@ -35,7 +54,7 @@ server.tool(
   "Stores a new fact, preference, or technical knowledge directly in memory.",
   {
     fact: z.string().min(3, "Fact is too short to save.").max(2000).describe("The fact or information to save."),
-    source: z.string().optional().describe("Source or project tag, e.g. 'TOTALCONNECT', 'SQLITE_MEMORY' (optional)."),
+    source: SOURCE_TAG.describe("Source or project tag, e.g. 'TOTALCONNECT', 'SQLITE_MEMORY' (optional, alphanumeric only)."),
   },
   async ({ fact, source }, { signal }) => {
     try {
@@ -62,7 +81,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `❌ Error saving fact: ${error.message}`,
+            text: `❌ Error saving fact: ${safeErrorMessage(error, "save_fact")}`,
           },
         ],
         isError: true,
@@ -120,7 +139,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `❌ Error searching memory: ${error.message}`,
+            text: `❌ Error searching memory: ${safeErrorMessage(error, "search_memory")}`,
           },
         ],
         isError: true,
@@ -155,7 +174,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `❌ Error reading active working state: ${error.message}`,
+            text: `❌ Error reading active working state: ${safeErrorMessage(error, "get_current_state")}`,
           },
         ],
         isError: true,
@@ -170,14 +189,14 @@ server.tool(
   "Runs background memory maintenance (AutoDream): summarizes recent progress, cleans up outdated notes, saves key technical takeaways, and updates the active project board.",
   {
     userId: z.string().optional().describe("User ID to consolidate (optional, default: user_default)."),
-    source: z.string().optional().describe("Current project or source being consolidated (e.g. 'TOTALCONNECT'). Preserves items from other projects in dashboard."),
+    source: SOURCE_TAG.describe("Current project or source being consolidated (e.g. 'TOTALCONNECT'). Preserves items from other projects in dashboard. Alphanumeric only."),
   },
   async ({ userId, source }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      const result = await memory.consolidate(userId, source);
+      const result = await memory.consolidate(userId, source, { signal });
 
       const triageSection = result.triageMemory && result.triageMemory.length > 0
         ? `\n\n📦 Injected Triage Cards (${result.triageMemory.length}):\n` +
@@ -208,7 +227,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `❌ Error during AutoDream consolidation: ${error.message}`,
+            text: `❌ Error during AutoDream consolidation: ${safeErrorMessage(error, "consolidate")}`,
           },
         ],
         isError: true,
@@ -218,8 +237,13 @@ server.tool(
 );
 
 const SHUTDOWN_TIMEOUT_MS = 5000;
+let isShuttingDown = false;
 
-async function gracefulShutdown(signal: string) {
+// FIX R3-1.5: Accept exitCode so supervisors (systemd, pm2, Docker) can distinguish
+// clean shutdowns (0) from crashes (1). Escalate if an error occurs during shutdown itself.
+async function gracefulShutdown(signal: string, exitCode: number = 0) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   console.error(`\n🛑 [MCP_SERVER] Received ${signal} signal. Gracefully closing server and database...`);
 
   const forceExitTimer = setTimeout(() => {
@@ -233,18 +257,19 @@ async function gracefulShutdown(signal: string) {
     memory.close();
   } catch (err: any) {
     console.error("⚠️ [MCP_SERVER] Error during shutdown:", err.message);
+    exitCode = exitCode === 0 ? 1 : exitCode; // escalate clean->error, keep crash code
   } finally {
     clearTimeout(forceExitTimer);
-    process.exit(0);
+    process.exit(exitCode);
   }
 }
 
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT", 0));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM", 0));
 
 process.on("uncaughtException", (err) => {
   console.error("💥 [MCP_SERVER] uncaughtException:", err);
-  gracefulShutdown("uncaughtException");
+  gracefulShutdown("uncaughtException", 1); // exit 1 so supervisors know this was a crash
 });
 
 process.on("unhandledRejection", (reason) => {
