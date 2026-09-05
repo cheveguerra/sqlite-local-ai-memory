@@ -13,14 +13,14 @@ async function runTest() {
 
   const memory = new MemoryEngine({
     dbPath,
-    userName: "Cheve",
+    userName: "Alice",
     userId: "user_test",
     semanticArbitrator: true,
   });
 
   console.log("\n📥 Ingesting test facts...");
-  await memory.saveFact("[DEVELOPMENT] [B4A] Socket reconnection error 256X resolved by adding Sleep(0) before resumable calls. Rule: do not ignore resumable calls.");
-  await memory.saveFact("[DIAGNOSIS] Investigating overheating root cause on primary server i7-4770. Definite solution pending.");
+  await memory.saveFact("[DEVELOPMENT] [NETWORK] Socket reconnection error 256X resolved by adding delay before resumable calls.");
+  await memory.saveFact("[DIAGNOSIS] Investigating server overheating root cause under heavy load. Solution pending.");
 
   console.log("\n⚙️ Executing AutoDream consolidation (memory.consolidate())...");
   const result = await memory.consolidate("user_test");
