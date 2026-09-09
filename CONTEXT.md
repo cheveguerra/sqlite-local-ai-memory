@@ -1,7 +1,7 @@
 # Contexto del Proyecto: sqlite-local-ai-memory
 
 ## 1. Estado y Versión
-- **Versión:** 1.3.2 (Lista para publicación NPM / GitHub)
+- **Versión:** 1.4.0 (Ring Buffer Conversacional en RAM, Smart Gate para Query Expander, Stopwords FTS5 y MCP History)
 - **Foco Activo:** Motor de memoria atómica local con salida dual AutoDream, Incubadora de casos abiertos y RAG Híbrido (FTS5 BM25 + Vectores Int8).
 - **Naturaleza:** Biblioteca Node.js / TypeScript y Servidor MCP desacoplado 100% en inglés técnico.
 
@@ -46,3 +46,9 @@
 - [x] Documentar patrones de consumo arquitectónico (Pure RAG vs Continuous Stateful Agent) con ejemplo balanceado de migración Postgres (especialista factual vs copiloto operativo) en README.md.
 - [x] Unificar nombre de herramienta MCP a 'consolidate' (idéntico a memory.consolidate() del SDK) sin deuda técnica de alias.
 - [x] Documentar ciclo de vida de consolidación (AutoDream): qué hace, por qué no corre en cada turno, patrones SDK (teardown, debounce, cron), modo MCP y prevención de deriva temporal en proyectos multisesión.
+- [x] Implementar Ring Buffer efímero en RAM con `addTurn(role, text)` para contexto conversacional vivo.
+- [x] Implementar Smart Gate en `search()` que activa el Bibliotecario solo cuando hay turnos en RAM o `history` en MCP (0 ms directo si está vacío).
+- [x] Eliminar bypass invertido de 50 caracteres en `contextualizeQuery` y forzar formato JSON estructurado.
+- [x] Agregar filtro estático de stopwords (ES/EN) en `searchFTS5` para eliminar dilución léxica BM25.
+- [x] Agregar parámetro opcional `history` a herramienta MCP `search_memory`.
+- [x] Integrar `addTurn("user")` y `addTurn("assistant")` en Bot2 (`app.ts`) eliminando el bypass local de 60 chars.

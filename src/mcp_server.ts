@@ -26,7 +26,7 @@ const memory = new MemoryEngine({
 
 const server = new McpServer({
   name: "sqlite-local-ai-memory",
-  version: "1.3.2",
+  version: "1.4.0",
 });
 
 function safeErrorMessage(error: any, fallbackContext: string): string {
@@ -93,17 +93,18 @@ server.tool(
 // Tool 2: search_memory
 server.tool(
   "search_memory",
-  "Searches long-term memory for relevant facts or historical context using hybrid FTS5 BM25 + Int8 Vector search.",
+  "Searches long-term memory for relevant facts or historical context using hybrid FTS5 BM25 + Int8 Vector search. Optionally pass recent conversation history to improve query disambiguation.",
   {
     query: z.string().min(1, "Search query cannot be empty.").describe("Search terms or topic to recall."),
     limit: z.number().int().min(1).max(20).optional().default(5).describe("Maximum number of results to return (default: 5, max: 20)."),
+    history: z.string().max(4000).optional().describe("Optional recent conversation history (e.g. 'U: hi\\nA: hello\\nU: what was that thing?'). When provided, the Query Expander uses it to resolve ambiguous references."),
   },
-  async ({ query, limit }, { signal }) => {
+  async ({ query, limit, history }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      const hits = await memory.search(query, limit, undefined, { signal });
+      const hits = await memory.search(query, limit, undefined, { signal, history });
 
       if (hits.length === 0) {
         return {

@@ -91,6 +91,8 @@ export class CognitiveAgents {
       dashboardTTLHours: config.dashboardTTLHours || 12,
       customPrompts: config.customPrompts || {},
       debug: config.debug !== undefined ? config.debug : (process.env.MEMORY_DEBUG === "true" || process.env.DEBUG === "true"),
+      telemetry: config.telemetry !== undefined ? config.telemetry : (process.env.MEMORY_TELEMETRY === "true" || process.env.TELEMETRY === "true"),
+      telemetryPath: config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || "/mnt/data1/agy_shared/memory_telemetry.jsonl",
       defaultSource: config.defaultSource || "system",
     };
     this.store = store;
@@ -159,7 +161,7 @@ export class CognitiveAgents {
       options: [{ provider: "ollama", model: "qwen2.5-coder:1.5b", endpoint: ollamaChatEndpoint, timeout: 15000 }],
     };
 
-    const QUERY_EXPANDER: AgentModelConfig | null = createConfig("Query Expander (Librarian)", "none", expanderTarget, 15000);
+    const QUERY_EXPANDER: AgentModelConfig | null = createConfig("Query Expander (Librarian)", "expander", expanderTarget, 15000);
 
     const NOTARY: AgentModelConfig = createConfig("Atomic Fact Notary", "notary", notaryTarget, 30000) || {
       desc: "Atomic Fact Notary",
@@ -444,6 +446,14 @@ export class CognitiveAgents {
           },
           required: ["replace_index"],
         };
+      case "expander":
+        return {
+          type: "object",
+          properties: {
+            expanded_query: { type: "string" },
+          },
+          required: ["expanded_query"],
+        };
       default:
         return undefined;
     }
@@ -457,24 +467,35 @@ export class CognitiveAgents {
       }
       return originalQuery;
     }
-    if (originalQuery.length > 50) {
-      if (this.config.debug) {
-        console.error(`🔎 [MEMORY:EXPANDER] Bypassed (Query > 50 chars) -> Literal query: "${originalQuery}" (0 ms)`);
-      }
-      return originalQuery;
-    }
 
     const defaultLibrarian = `You are an Information Retrieval (RAG) expert and key entity extractor.
 Your task is to rewrite the user's input to construct an ultra-clean semantic query, preserving and REINFORCING the search with prior conversational context.
 The primary user is ${this.config.userName}.
-SUPREME RULE: Retain all proper nouns, project names, and technical terms. Output format: "topic + Proper Noun", without possessive pronouns or greetings.`;
+RULES:
+1. Retain ALL proper nouns, project names, and technical terms.
+2. Resolve pronouns and references ("eso", "ella", "lo que dije") using the conversation history.
+3. Output format: "topic + Proper Noun", without possessive pronouns or greetings.
+4. If the query is already clean and specific, return it unchanged.
+Respond ONLY with a JSON object: { "expanded_query": "your optimized search terms" }`;
 
     const systemPrompt = this.config.customPrompts?.queryExpanderSystem || this.config.customPrompts?.bibliotecarioSystem || defaultLibrarian;
     const userPrompt = `[RECENT HISTORY]:\n${shortHistory}\n\n[SHORT QUERY]: "${originalQuery}"`;
 
     try {
-      const res = await this.executeAgent(expanderAgent, systemPrompt, userPrompt);
-      const finalQuery = res || originalQuery;
+      const res = await this.executeAgent(expanderAgent, systemPrompt, userPrompt, true);
+      let finalQuery = originalQuery;
+      try {
+        const parsed = JSON.parse(extractJsonPayload(res));
+        if (parsed.expanded_query && typeof parsed.expanded_query === "string" && parsed.expanded_query.trim().length > 0) {
+          finalQuery = parsed.expanded_query.trim();
+        }
+      } catch {
+        // If JSON parse fails, try using the raw response if it looks clean
+        const cleaned = res.replace(/[{}"\n]/g, "").trim();
+        if (cleaned.length > 0 && cleaned.length < 200) {
+          finalQuery = cleaned;
+        }
+      }
       if (this.config.debug) {
         console.error(`🔎 [MEMORY:EXPANDER] Original: "${originalQuery}" -> Expanded: "${finalQuery}"`);
       }

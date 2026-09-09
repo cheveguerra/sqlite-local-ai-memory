@@ -4,9 +4,20 @@
  * RESPONSIBILITY: Primary Exportable Facade Class (Library + MCP).
  * ============================================================================
  */
+import * as fs from "fs";
+import * as path from "path";
 import { type MemoryConfig, type MemoryHit, type AutoDreamResult, EMBEDDING_DIM } from "./types.js";
 import { SqliteStore } from "./sqlite_store.js";
 import { CognitiveAgents } from "./cognitive_agents.js";
+
+/** A single conversation turn stored in the ephemeral ring buffer. */
+interface ConversationTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+/** Maximum number of recent turns retained per user in RAM. */
+const MAX_RING_BUFFER_TURNS = 10;
 
 /**
  * KeyedMutex: Guarantees deterministic serialization of asynchronous write operations
@@ -38,16 +49,52 @@ export class MemoryEngine {
   private agents: CognitiveAgents;
   private userId: string;
   private debug: boolean;
+  private telemetry: boolean;
+  private telemetryPath: string;
   private writeMutex = new KeyedMutex();
   private backfillInFlight = new Set<string>();
+  /** Ephemeral per-user ring buffer of recent conversation turns (RAM only, never persisted). */
+  private turnBuffers = new Map<string, ConversationTurn[]>();
 
   constructor(config: MemoryConfig = {}) {
     this.userId = config.userId || "user_default";
     this.debug = config.debug !== undefined
       ? config.debug
       : (process.env.MEMORY_DEBUG === "true" || process.env.DEBUG === "true");
+    this.telemetry = config.telemetry !== undefined
+      ? config.telemetry
+      : (process.env.MEMORY_TELEMETRY === "true" || process.env.TELEMETRY === "true");
+    this.telemetryPath = config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || "/mnt/data1/agy_shared/memory_telemetry.jsonl";
     this.store = new SqliteStore(config.dbPath);
     this.agents = new CognitiveAgents({ ...config, debug: this.debug }, this.store);
+  }
+
+  /**
+   * Appends an operational telemetry record to the JSONL log file asynchronously.
+   * Fail-safe: Any file system or serialization error is logged and swallowed so it
+   * NEVER interferes with the core user query flow.
+   */
+  private recordTelemetry(payload: Record<string, any>): void {
+    if (!this.telemetry) return;
+    try {
+      const entry = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        ...payload,
+      }) + "\n";
+      const targetDir = path.dirname(this.telemetryPath);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      fs.appendFile(this.telemetryPath, entry, (err) => {
+        if (err && this.debug) {
+          console.warn(`⚠️ [MEMORY:TELEMETRY] Failed to append telemetry record: ${err.message}`);
+        }
+      });
+    } catch (err: any) {
+      if (this.debug) {
+        console.warn(`⚠️ [MEMORY:TELEMETRY] Error preparing telemetry record: ${err.message}`);
+      }
+    }
   }
 
   /**
@@ -65,6 +112,14 @@ export class MemoryEngine {
   ): Promise<void> {
     return this.writeMutex.run(userId, async () => {
       await this.agents.saveMemory(text, userId, opts?.signal, opts?.source);
+      if (this.telemetry) {
+        this.recordTelemetry({
+          event: "SAVE",
+          userId,
+          source: opts?.source || "system",
+          input_text: text,
+        });
+      }
     });
   }
 
@@ -83,23 +138,60 @@ export class MemoryEngine {
   ): Promise<void> {
     return this.writeMutex.run(userId, async () => {
       await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
+      if (this.telemetry) {
+        this.recordTelemetry({
+          event: "SAVE_FACT",
+          userId,
+          source: opts?.source || "system",
+          fact,
+        });
+      }
     });
   }
 
   /**
    * Dual Parallel Hybrid RAG Search (FTS5 BM25 + Int8 Scalar Quantized Cosine Similarity).
+   * Automatically invokes QUERY_EXPANDER via Smart Gate when conversational context is present.
    */
   public async search(
     query: string,
     limit: number = 5,
     userId: string = this.userId,
-    opts?: { signal?: AbortSignal }
+    opts?: { signal?: AbortSignal; history?: string }
   ): Promise<MemoryHit[]> {
-    const ftsHits = this.store.searchFTS5(query, limit * 2, userId);
+    const searchStartTime = Date.now();
+    // --- SMART GATE: Activate QUERY_EXPANDER only when conversational context exists ---
+    let effectiveQuery = query;
+    const ringTurns = this.turnBuffers.get(userId) || [];
+    const ringHistory = this.getFormattedHistory(userId);
+    const externalHistory = opts?.history || "";
+    const availableHistory = ringHistory || externalHistory;
+
+    let expanderInvoked = false;
+    let expanderLatencyMs = 0;
+    let expanderError: string | null = null;
+
+    if (availableHistory.length > 0) {
+      expanderInvoked = true;
+      const expanderStart = Date.now();
+      try {
+        effectiveQuery = await this.agents.contextualizeQuery(query, availableHistory);
+      } catch (err: any) {
+        expanderError = err.message || String(err);
+        if (this.debug) {
+          console.error(`⚠️ [MemoryEngine] contextualizeQuery failed, using raw query: ${err.message}`);
+        }
+        effectiveQuery = query;
+      } finally {
+        expanderLatencyMs = Date.now() - expanderStart;
+      }
+    }
+
+    const ftsHits = this.store.searchFTS5(effectiveQuery, limit * 2, userId);
     let queryVec: number[] = [];
 
     try {
-      queryVec = await this.agents.getEmbedding(query, opts?.signal);
+      queryVec = await this.agents.getEmbedding(effectiveQuery, opts?.signal);
     } catch (err: any) {
       if (err.name === "AbortError" || opts?.signal?.aborted) throw err;
       console.warn("⚠️ [MemoryEngine] Embedding generation failed, degrading gracefully to FTS5 exact search:", err.message);
@@ -142,9 +234,41 @@ export class MemoryEngine {
     unified.sort((a, b) => (b.score || 0) - (a.score || 0));
     const results = unified.slice(0, limit);
 
+    // Deep Telemetry logging
+    if (this.telemetry) {
+      this.recordTelemetry({
+        event: "SEARCH",
+        userId,
+        raw_query: query,
+        effective_query: effectiveQuery,
+        smart_gate: {
+          expander_invoked: expanderInvoked,
+          ring_turns_count: ringTurns.length,
+          ring_history_snapshot: ringTurns.map(t => ({ role: t.role, text: t.text })),
+          external_history_provided: Boolean(externalHistory),
+        },
+        expander: {
+          latency_ms: expanderLatencyMs,
+          error: expanderError,
+          disambiguated: effectiveQuery !== query,
+        },
+        retrieval: {
+          total_duration_ms: Date.now() - searchStartTime,
+          raw_fts_matches: ftsHits.length,
+          raw_vec_matches: vecHits.length,
+          returned_hits: results.map(r => ({
+            id: r.id,
+            score: Number((r.score ?? 0).toFixed(3)),
+            data: r.data.length > 120 ? `${r.data.slice(0, 120)}...` : r.data,
+            source: r.source,
+          })),
+        },
+      });
+    }
+
     if (this.debug) {
       console.error(`\n🔍 [MEMORY:SEARCH]`);
-      console.error(`├─ Query: "${query}" (User: ${userId})`);
+      console.error(`├─ Query: "${query}" → Effective: "${effectiveQuery}" (User: ${userId})`);
       console.error(`├─ Raw Matches: FTS5 BM25 = ${ftsHits.length} | Vector Cosine = ${vecHits.length}`);
       console.error(`└─ Ranked Results (Top ${results.length}):`);
       if (results.length === 0) {
@@ -198,7 +322,43 @@ export class MemoryEngine {
   }
 
   /**
-   * Rewrites a short user query by reinforcing context from recent conversation history.
+   * Registers a conversation turn in the ephemeral ring buffer.
+   * This provides the QUERY_EXPANDER with recent conversational context
+   * to resolve ambiguous queries (pronouns, references, ellipsis).
+   * Turns are stored in RAM only and never written to SQLite.
+   *
+   * @param role - "user" or "assistant"
+   * @param text - The message content
+   * @param userId - Target user identifier (defaults to configured userId)
+   */
+  public addTurn(role: "user" | "assistant", text: string, userId: string = this.userId): void {
+    let buffer = this.turnBuffers.get(userId);
+    if (!buffer) {
+      buffer = [];
+      this.turnBuffers.set(userId, buffer);
+    }
+    buffer.push({ role, text });
+    if (buffer.length > MAX_RING_BUFFER_TURNS) {
+      buffer.splice(0, buffer.length - MAX_RING_BUFFER_TURNS);
+    }
+  }
+
+  /**
+   * Returns the last N turns formatted as "U: ...\nA: ..." for the QUERY_EXPANDER.
+   * Returns empty string if no turns are available.
+   */
+  private getFormattedHistory(userId: string, maxTurns: number = 5): string {
+    const buffer = this.turnBuffers.get(userId);
+    if (!buffer || buffer.length === 0) return "";
+    const recent = buffer.slice(-maxTurns);
+    return recent
+      .map((t) => `${t.role === "user" ? "U" : "A"}: ${t.text}`)
+      .join("\n");
+  }
+
+  /**
+   * @deprecated Use addTurn() + search() instead. The smart gate inside search()
+   * now calls contextualizeQuery automatically when turns are available.
    */
   public async contextualizeQuery(query: string, shortHistory: string): Promise<string> {
     return await this.agents.contextualizeQuery(query, shortHistory);

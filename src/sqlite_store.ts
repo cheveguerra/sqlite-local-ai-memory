@@ -128,13 +128,32 @@ export class SqliteStore {
     return dotProduct / (Math.sqrt(normQ) * Math.sqrt(normB));
   }
 
+  /** Static stopword set for ES/EN — filters common words that dilute FTS5 BM25 ranking. */
+  private static readonly STOPWORDS = new Set([
+    // Spanish
+    "de", "la", "el", "en", "que", "es", "lo", "un", "una", "las", "los",
+    "del", "al", "por", "con", "para", "se", "su", "sus", "le", "les",
+    "ya", "me", "te", "mi", "tu", "nos", "como", "pero", "mas", "ese",
+    "esa", "eso", "esta", "este", "esto", "son", "fue", "ser", "hay",
+    "si", "no", "muy", "sin", "sobre", "entre", "cuando", "donde",
+    "desde", "hasta", "era", "han", "sido", "tiene", "puede",
+    "tambien", "otro", "otra", "otros", "cada", "todo", "toda", "todos",
+    // English
+    "the", "is", "at", "which", "on", "a", "an", "and", "or", "but",
+    "in", "with", "for", "to", "of", "it", "its", "was", "are", "be",
+    "has", "had", "have", "do", "does", "did", "not", "this", "that",
+    "from", "by", "as", "into", "can", "will", "just", "about", "also",
+    "been", "would", "should", "could", "than", "then", "them", "they",
+    "their", "there", "what", "when", "how", "who", "all", "some",
+  ]);
+
   public searchFTS5(query: string, limit: number = 10, userId?: string): MemoryHit[] {
     try {
       const sanitized = query.replace(/[^a-zA-Z0-9\u00C0-\u024F\s]/g, " ").trim();
       const cleanWords = sanitized
         .split(/\s+/)
         .map((w) => w.trim())
-        .filter((w) => w.length > 1);
+        .filter((w) => w.length > 1 && !SqliteStore.STOPWORDS.has(w.toLowerCase()));
 
       if (cleanWords.length === 0) return [];
 

@@ -60,6 +60,17 @@ export interface MemoryConfig {
   customPrompts?: CustomPrompts;
   /** Enable detailed multi-stage console debugging logs (default: false, env: MEMORY_DEBUG) */
   debug?: boolean;
+  /** 
+   * Switch de Telemetría Profunda Forense (default: false, env: MEMORY_TELEMETRY).
+   * Cuando se activa (true), registra de forma asíncrona y estructurada en un archivo JSONL
+   * toda la radiografía operativa: turnos en el Ring Buffer de RAM, decisión del Smart Gate,
+   * latencia y respuesta del Bibliotecario (Query Expander), stopwords removidas, scores y
+   * recuerdos recuperados, y veredictos del Portero/Notario. Permite auditorías a posteriori
+   * sin saturar la consola ni degradar la latencia de respuesta al usuario.
+   */
+  telemetry?: boolean;
+  /** Ruta absoluta al archivo JSONL donde se depositará la telemetría (default: env MEMORY_TELEMETRY_PATH o /mnt/data1/agy_shared/memory_telemetry.jsonl) */
+  telemetryPath?: string;
   /** Default source tag for facts inserted during this session (e.g. 'TOTALCONNECT', 'SQLITE_MEMORY') */
   defaultSource?: string;
 }
@@ -123,7 +134,7 @@ export interface AutoDreamResult {
   statusMessage: string;
 }
 
-export type AgentSchemaKey = "notary" | "orchestrator" | "arbiter" | "none";
+export type AgentSchemaKey = "notary" | "orchestrator" | "arbiter" | "expander" | "none";
 
 export type ModelProvider = "ollama" | "gemini" | "openrouter" | "openai";
 
