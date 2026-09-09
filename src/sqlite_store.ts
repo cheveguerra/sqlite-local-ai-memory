@@ -201,15 +201,25 @@ export class SqliteStore {
           SELECT point_id as id, user_id, data, source, created_at, vector_blob
           FROM recuerdos_vectores
           WHERE vector_blob IS NOT NULL AND user_id = ?
+          ORDER BY created_at DESC
+          LIMIT 5000
         `);
         rows = stmt.all(userId);
+        if (rows.length >= 5000) {
+          console.warn(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit for user ${userId}. Consider enabling ANN indexing for better scalability.`);
+        }
       } else {
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, vector_blob
           FROM recuerdos_vectores
           WHERE vector_blob IS NOT NULL
+          ORDER BY created_at DESC
+          LIMIT 5000
         `);
         rows = stmt.all();
+        if (rows.length >= 5000) {
+          console.warn(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit. Consider enabling ANN indexing for better scalability.`);
+        }
       }
 
       const scored: MemoryHit[] = [];
@@ -344,6 +354,7 @@ export class SqliteStore {
         FROM recuerdos_vectores
         WHERE user_id = ? AND point_id != ?
           AND created_at >= ?
+          AND source != 'inactive'
       `;
       const params: any[] = [userId, DASHBOARD_UUID, sinceIso];
       if (sourceFilter) {

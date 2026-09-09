@@ -237,9 +237,10 @@ export class CognitiveAgents {
     }
 
     // 2. Fallback to Gemini Cloud gemini-embedding-001 (768 Matryoshka dimensions)
-    if (this.genAI) {
+    const genAI = await this.getGenAIClient();
+    if (genAI) {
       try {
-        const embedModel = this.genAI.getGenerativeModel({ model: "gemini-embedding-001" });
+        const embedModel = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
         const res = await embedModel.embedContent({
           content: { role: "user", parts: [{ text }] },
           outputDimensionality: EMBEDDING_DIM,
@@ -317,7 +318,16 @@ export class CognitiveAgents {
           const abortController = new AbortController();
           const timeoutId = setTimeout(() => abortController.abort(new Error(`Gemini timeout after ${timeoutMs}ms`)), timeoutMs);
           const parentAbortHandler = () => abortController.abort();
-          if (signal) signal.addEventListener("abort", parentAbortHandler, { once: true });
+
+          // FIX-7: Verificar si la señal se abortó DURANTE el await de getGenAIClient()
+          if (signal?.aborted) {
+            clearTimeout(timeoutId);
+            const abortErr = new Error("Execution aborted by signal");
+            abortErr.name = "AbortError";
+            throw abortErr;
+          } else if (signal) {
+            signal.addEventListener("abort", parentAbortHandler, { once: true });
+          }
 
           try {
             const res = await model.generateContent(
@@ -337,6 +347,13 @@ export class CognitiveAgents {
           const apiKey = isOpenRouter
             ? (this.config.openRouterApiKey || process.env.OPENROUTER_API_KEY)
             : (process.env.OPENAI_API_KEY || this.config.openRouterApiKey);
+
+          // FIX-5: no enviar request sin API key — patrón idéntico a la rama Gemini
+          if (!apiKey) {
+            console.warn(`⚠️ [COGNITIVE] Agent [${agentConfig.desc}]: ${config.provider} configured but no API key available. Skipping provider.`);
+            continue;
+          }
+
           const defaultEndpoint = isOpenRouter
             ? "https://openrouter.ai/api/v1/chat/completions"
             : (process.env.OPENAI_BASE_URL ? `${process.env.OPENAI_BASE_URL.replace(/\/+$/, "")}/chat/completions` : "https://api.openai.com/v1/chat/completions");
@@ -732,6 +749,13 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
         const unresolvedFact = `[TECHNICAL] [UNRESOLVED_CASE] [SYMPTOM]: ${rawIncident} [STATUS]: Unresolved due to inactivity after TTL expiration.`;
         await this.injectUnifiedFact(unresolvedFact, userId, [], signal, item.source || currentSource || "system");
       }
+    }
+
+    // FIX-3: Persistir de inmediato el dashboard podado ANTES de intentar el LLM orquestador.
+    // Así, si el orquestador falla después, el archivado ya realizado no queda huérfano
+    // y el mismo caso nunca se re-archiva en el próximo ciclo.
+    if (prunedFactsCount > 0) {
+      this.store.saveDashboardFact(JSON.stringify(activeDashboard), userId, []);
     }
 
     // Option B: Calculate dynamic consolidation window based on active open cases in dashboard

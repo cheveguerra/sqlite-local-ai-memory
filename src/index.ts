@@ -5,6 +5,4 @@
  * ============================================================================
  */
 export { MemoryEngine } from "./MemoryEngine.js";
-export { CognitiveAgents } from "./cognitive_agents.js";
-export { SqliteStore } from "./sqlite_store.js";
 export * from "./types.js";
