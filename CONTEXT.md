@@ -1,7 +1,7 @@
 # Contexto del Proyecto: sqlite-local-ai-memory
 
 ## 1. Estado y Versión
-- **Versión:** 1.4.0 (Ring Buffer Conversacional en RAM, Smart Gate para Query Expander, Stopwords FTS5 y MCP History)
+- **Versión:** 1.4.2 (Hardening de Auditoría Multi-Modelo: Protección de agentes esenciales, LRU en Ring Buffer, Stream de Telemetría, Saneamiento de Tags y Consistencia MCP)
 - **Foco Activo:** Motor de memoria atómica local con salida dual AutoDream, Incubadora de casos abiertos y RAG Híbrido (FTS5 BM25 + Vectores Int8).
 - **Naturaleza:** Biblioteca Node.js / TypeScript y Servidor MCP desacoplado 100% en inglés técnico.
 
@@ -30,6 +30,7 @@
 
 - **Enrutamiento Universal de Modelos (`PROVIDER/MODEL`):** Soporte agnóstico para prefijos `gemini/...`, `ollama/...`, `openai/...` y `openrouter/...` desacoplado de heurísticas de nombres.
 - **Bypass Opcional en Query Expander:** `EXPANDER_MODEL` admite `none` o vacío para desactivar el agente, ejecutando búsquedas literales en 0 ms sin costo de API ni riesgo de envenenamiento léxico en FTS5.
+- **Protección de Agentes Esenciales:** `GATEKEEPER`, `NOTARY`, `STATE_ORCHESTRATOR` y `SEMANTIC_ARBITER` son indispensables. Si se configuran con `off`/`none`/`disabled`, el sistema emite `console.warn` explicativo y aplica fallback defensivo a los modelos por defecto.
 - **Plantilla `.env.example`:** Documentación completa de variables, endpoints y modelos recomendados.
 
 ## 5. Tareas Pendientes
@@ -52,3 +53,9 @@
 - [x] Agregar filtro estático de stopwords (ES/EN) en `searchFTS5` para eliminar dilución léxica BM25.
 - [x] Agregar parámetro opcional `history` a herramienta MCP `search_memory`.
 - [x] Integrar `addTurn("user")` y `addTurn("assistant")` en Bot2 (`app.ts`) eliminando el bypass local de 60 chars.
+- [x] (v1.4.1) Implementar desalojo LRU en `turnBuffers` de `MemoryEngine.ts` para evitar memory leaks multi-usuario.
+- [x] (v1.4.1) Migrar telemetría a `fs.WriteStream` evitando agotamiento de file descriptors (EMFILE).
+- [x] (v1.4.1) Sanitizar inyección de tags de corchetes en `cognitive_agents.ts`.
+- [x] (v1.4.1) Sincronizar versión de `mcp_server.ts` a 1.4.1 y agregar `userId` a todas las herramientas MCP.
+- [x] (v1.4.1) Implementar `createEssentialConfig` con advertencias en consola para agentes cognitivos esenciales ante valores `off`/`disabled`.
+- [x] (v1.4.1) Compilar y certificar build limpio de TypeScript (`npm run build`).

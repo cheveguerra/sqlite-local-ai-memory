@@ -15,9 +15,10 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
+import os from "os";
 import { type MemoryHit, EMBEDDING_DIM } from "./types.js";
 
-const LOCAL_FALLBACK_PATH = "./memoria.db";
+const LOCAL_FALLBACK_PATH = path.join(os.homedir(), ".local-ai-memory", "memoria.db");
 export const DASHBOARD_UUID = "00000000-0000-0000-0000-000000000000";
 
 export class SqliteStore {

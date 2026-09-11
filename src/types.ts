@@ -69,7 +69,7 @@ export interface MemoryConfig {
    * sin saturar la consola ni degradar la latencia de respuesta al usuario.
    */
   telemetry?: boolean;
-  /** Ruta absoluta al archivo JSONL donde se depositará la telemetría (default: env MEMORY_TELEMETRY_PATH o /mnt/data1/agy_shared/memory_telemetry.jsonl) */
+  /** Ruta absoluta al archivo JSONL donde se depositará la telemetría (default: env MEMORY_TELEMETRY_PATH o ~/.local-ai-memory/telemetry.jsonl) */
   telemetryPath?: string;
   /** Default source tag for facts inserted during this session (e.g. 'TOTALCONNECT', 'SQLITE_MEMORY') */
   defaultSource?: string;

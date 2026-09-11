@@ -7,8 +7,12 @@
  */
 import axios from "axios";
 import * as crypto from "crypto";
+import * as path from "path";
+import os from "os";
 import { type MemoryConfig, type AgentModelConfig, type AutoDreamResult, type TriageItem, type OpenCaseItem, type DashboardItem, type ModelProvider, type AgentSchemaKey, EMBEDDING_DIM } from "./types.js";
 import { SqliteStore } from "./sqlite_store.js";
+
+const defaultTelemetryPath = path.join(os.homedir(), ".local-ai-memory", "telemetry.jsonl");
 
 export interface ParsedModelTarget {
   provider: ModelProvider;
@@ -92,10 +96,20 @@ export class CognitiveAgents {
       customPrompts: config.customPrompts || {},
       debug: config.debug !== undefined ? config.debug : (process.env.MEMORY_DEBUG === "true" || process.env.DEBUG === "true"),
       telemetry: config.telemetry !== undefined ? config.telemetry : (process.env.MEMORY_TELEMETRY === "true" || process.env.TELEMETRY === "true"),
-      telemetryPath: config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || "/mnt/data1/agy_shared/memory_telemetry.jsonl",
+      telemetryPath: config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || defaultTelemetryPath,
       defaultSource: config.defaultSource || "system",
     };
     this.store = store;
+  }
+
+  private sanitizeTag(raw: unknown, fallback = "GENERAL"): string {
+    if (typeof raw !== "string" || raw.trim().length === 0) return fallback;
+    const cleaned = raw.trim().replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 32);
+    return cleaned.length > 0 ? cleaned.toUpperCase() : fallback;
+  }
+
+  private stripLeadingTag(text: string): string {
+    return text.replace(/^\[[A-Za-z0-9_\-\/:]{1,80}\]\s*/, "").trim();
   }
 
   private async getGenAIClient(): Promise<any> {
@@ -152,40 +166,88 @@ export class CognitiveAgents {
       };
     };
 
-    const GATEKEEPER: AgentModelConfig = createConfig("Noise Filter (Gatekeeper)", "none", gatekeeperTarget, 15000) || {
-      desc: "Noise Filter (Gatekeeper)",
-      schemaKey: "none",
-      provider: "ollama",
-      model: "qwen2.5-coder:1.5b",
-      endpoint: ollamaChatEndpoint,
-      options: [{ provider: "ollama", model: "qwen2.5-coder:1.5b", endpoint: ollamaChatEndpoint, timeout: 15000 }],
+    const createEssentialConfig = (
+      desc: string,
+      schemaKey: AgentSchemaKey,
+      target: ParsedModelTarget | null,
+      envVarName: string,
+      defaultProvider: "ollama" | "gemini",
+      defaultModel: string,
+      defaultTimeout: number,
+      endpoint?: string
+    ): AgentModelConfig => {
+      if (!target) {
+        console.warn(
+          `[sqlite-local-ai-memory] WARNING: Essential cognitive agent "${desc}" (${envVarName}) cannot be disabled. Falling back to default: ${defaultProvider}/${defaultModel}`
+        );
+        return {
+          desc,
+          schemaKey,
+          provider: defaultProvider,
+          model: defaultModel,
+          endpoint,
+          options: [{ provider: defaultProvider, model: defaultModel, endpoint, timeout: defaultTimeout }],
+        };
+      }
+      const ep = target.provider === "ollama" ? (endpoint || ollamaChatEndpoint) : undefined;
+      return {
+        desc,
+        schemaKey,
+        provider: target.provider,
+        model: target.model,
+        endpoint: ep,
+        options: [{ provider: target.provider, model: target.model, endpoint: ep, timeout: defaultTimeout }],
+      };
     };
+
+    const GATEKEEPER: AgentModelConfig = createEssentialConfig(
+      "Noise Filter (Gatekeeper)",
+      "none",
+      gatekeeperTarget,
+      "GATEKEEPER_MODEL",
+      "ollama",
+      "qwen2.5-coder:1.5b",
+      15000,
+      ollamaChatEndpoint
+    );
 
     const QUERY_EXPANDER: AgentModelConfig | null = createConfig("Query Expander (Librarian)", "expander", expanderTarget, 15000);
 
-    const NOTARY: AgentModelConfig = createConfig("Atomic Fact Notary", "notary", notaryTarget, 30000) || {
-      desc: "Atomic Fact Notary",
-      schemaKey: "notary",
-      provider: "gemini",
-      model: "gemini-2.5-flash-lite",
-      options: [{ provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 30000 }],
-    };
+    const NOTARY: AgentModelConfig = createEssentialConfig(
+      "Atomic Fact Notary",
+      "notary",
+      notaryTarget,
+      "NOTARY_MODEL",
+      "gemini",
+      "gemini-2.5-flash-lite",
+      30000
+    );
 
-    const STATE_ORCHESTRATOR: AgentModelConfig = createConfig("Dashboard State Orchestrator", "orchestrator", orchestratorTarget, 30000) || {
-      desc: "Dashboard State Orchestrator",
-      schemaKey: "orchestrator",
-      provider: "gemini",
-      model: "gemini-2.5-flash-lite",
-      options: [{ provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 30000 }],
-    };
+    const STATE_ORCHESTRATOR: AgentModelConfig = createEssentialConfig(
+      "Dashboard State Orchestrator",
+      "orchestrator",
+      orchestratorTarget,
+      "ORCHESTRATOR_MODEL",
+      "gemini",
+      "gemini-2.5-flash-lite",
+      30000
+    );
 
-    const SEMANTIC_ARBITER: AgentModelConfig = createConfig("State Collision Auditor (Semantic Arbiter)", "arbiter", arbiterTarget, 15000) || {
-      desc: "State Collision Auditor (Semantic Arbiter)",
-      schemaKey: "arbiter",
-      provider: "gemini",
-      model: "gemini-2.5-flash-lite",
-      options: [{ provider: "gemini", model: "gemini-2.5-flash-lite", timeout: 15000 }],
-    };
+    const SEMANTIC_ARBITER: AgentModelConfig = createEssentialConfig(
+      "State Collision Auditor (Semantic Arbiter)",
+      "arbiter",
+      arbiterTarget,
+      "ARBITER_MODEL",
+      "gemini",
+      "gemini-2.5-flash-lite",
+      15000
+    );
+
+    if (!embedderTarget) {
+      console.warn(
+        `[sqlite-local-ai-memory] WARNING: Essential cognitive agent "Embedding Generator" (EMBEDDER_MODEL) cannot be disabled. Falling back to default: ollama/nomic-embed-text`
+      );
+    }
 
     const EMBEDDER: AgentModelConfig = {
       desc: "Embedding Generator",
@@ -293,7 +355,11 @@ export class CognitiveAgents {
             timeout: timeoutMs,
             signal,
           });
-          return res.data.message.content.trim();
+          const content = res?.data?.message?.content;
+          if (typeof content !== "string") {
+            throw new Error(`Unexpected Ollama response shape for model ${config.model}`);
+          }
+          return content.trim();
         } else if (config.provider === "gemini") {
           const genAI = await this.getGenAIClient();
           if (!genAI) {
@@ -337,7 +403,11 @@ export class CognitiveAgents {
               },
               { signal: abortController.signal } as any
             );
-            return res.response.text().trim();
+            const text = res?.response?.text?.();
+            if (typeof text !== "string") {
+              throw new Error(`Unexpected Gemini response shape for model ${config.model}`);
+            }
+            return text.trim();
           } finally {
             clearTimeout(timeoutId);
             if (signal) signal.removeEventListener("abort", parentAbortHandler);
@@ -688,8 +758,8 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
         }
         const protectedIds: string[] = [];
         for (const item of factsList) {
-          const category = item.category || item.cat || "GENERAL";
-          const factText = item.fact || item.dato || "";
+          const category = this.sanitizeTag(item.category || item.cat, "GENERAL");
+          const factText = this.stripLeadingTag(item.fact || item.dato || "");
           if (factText) {
             const finalFact = `[${category}] ${factText}`;
             await this.injectUnifiedFact(finalFact, userId, protectedIds, signal, source);
@@ -952,8 +1022,9 @@ Return strict JSON matching schema. Retain primary user's native language.`;
       for (const item of triageList) {
         if (signal?.aborted) throw new Error("AutoDream aborted by signal");
         if (item && item.fact) {
-          const prefix = item.type ? `[${item.type}] ` : "";
-          const finalFact = item.fact.startsWith("[") ? item.fact : `${prefix}${item.fact}`;
+          const safeType = this.sanitizeTag(item.type, "");
+          const cleanFact = this.stripLeadingTag(item.fact);
+          const finalFact = safeType ? `[${safeType}] ${cleanFact}` : cleanFact;
           await this.injectUnifiedFact(finalFact, userId, [], signal, currentSource || "system");
         }
       }

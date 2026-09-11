@@ -6,6 +6,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import os from "os";
 import { type MemoryConfig, type MemoryHit, type AutoDreamResult, EMBEDDING_DIM } from "./types.js";
 import { SqliteStore } from "./sqlite_store.js";
 import { CognitiveAgents } from "./cognitive_agents.js";
@@ -18,6 +19,7 @@ interface ConversationTurn {
 
 /** Maximum number of recent turns retained per user in RAM. */
 const MAX_RING_BUFFER_TURNS = 10;
+const defaultTelemetryPath = path.join(os.homedir(), ".local-ai-memory", "telemetry.jsonl");
 
 /**
  * KeyedMutex: Guarantees deterministic serialization of asynchronous write operations
@@ -51,6 +53,8 @@ export class MemoryEngine {
   private debug: boolean;
   private telemetry: boolean;
   private telemetryPath: string;
+  private telemetryStream?: fs.WriteStream;
+  private readonly MAX_TRACKED_USERS = 500;
   private writeMutex = new KeyedMutex();
   private backfillInFlight = new Set<string>();
   /** Ephemeral per-user ring buffer of recent conversation turns (RAM only, never persisted). */
@@ -64,9 +68,22 @@ export class MemoryEngine {
     this.telemetry = config.telemetry !== undefined
       ? config.telemetry
       : (process.env.MEMORY_TELEMETRY === "true" || process.env.TELEMETRY === "true");
-    this.telemetryPath = config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || "/mnt/data1/agy_shared/memory_telemetry.jsonl";
+    this.telemetryPath = config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || defaultTelemetryPath;
     this.store = new SqliteStore(config.dbPath);
     this.agents = new CognitiveAgents({ ...config, debug: this.debug }, this.store);
+    if (this.telemetry) {
+      try {
+        const targetDir = path.dirname(this.telemetryPath);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        this.telemetryStream = fs.createWriteStream(this.telemetryPath, { flags: "a" });
+      } catch (err: any) {
+        if (this.debug) {
+          console.warn(`⚠️ [MEMORY:TELEMETRY] Failed to initialize telemetry stream: ${err.message}`);
+        }
+      }
+    }
   }
 
   /**
@@ -75,24 +92,16 @@ export class MemoryEngine {
    * NEVER interferes with the core user query flow.
    */
   private recordTelemetry(payload: Record<string, any>): void {
-    if (!this.telemetry) return;
+    if (!this.telemetry || !this.telemetryStream) return;
     try {
       const entry = JSON.stringify({
         timestamp: new Date().toISOString(),
         ...payload,
       }) + "\n";
-      const targetDir = path.dirname(this.telemetryPath);
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-      fs.appendFile(this.telemetryPath, entry, (err) => {
-        if (err && this.debug) {
-          console.warn(`⚠️ [MEMORY:TELEMETRY] Failed to append telemetry record: ${err.message}`);
-        }
-      });
+      this.telemetryStream.write(entry);
     } catch (err: any) {
       if (this.debug) {
-        console.warn(`⚠️ [MEMORY:TELEMETRY] Error preparing telemetry record: ${err.message}`);
+        console.warn(`⚠️ [MEMORY:TELEMETRY] Error writing telemetry record: ${err.message}`);
       }
     }
   }
@@ -333,14 +342,20 @@ export class MemoryEngine {
    */
   public addTurn(role: "user" | "assistant", text: string, userId: string = this.userId): void {
     let buffer = this.turnBuffers.get(userId);
-    if (!buffer) {
+    if (buffer) {
+      this.turnBuffers.delete(userId);
+    } else {
+      if (this.turnBuffers.size >= this.MAX_TRACKED_USERS) {
+        const oldestKey = this.turnBuffers.keys().next().value;
+        if (oldestKey !== undefined) this.turnBuffers.delete(oldestKey);
+      }
       buffer = [];
-      this.turnBuffers.set(userId, buffer);
     }
     buffer.push({ role, text });
     if (buffer.length > MAX_RING_BUFFER_TURNS) {
       buffer.splice(0, buffer.length - MAX_RING_BUFFER_TURNS);
     }
+    this.turnBuffers.set(userId, buffer);
   }
 
   /**
@@ -369,5 +384,8 @@ export class MemoryEngine {
    */
   public close(): void {
     this.store.close();
+    if (this.telemetryStream) {
+      this.telemetryStream.end();
+    }
   }
 }
