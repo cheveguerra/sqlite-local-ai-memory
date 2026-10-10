@@ -43,7 +43,46 @@ Unlike basic vector wrappers or chat buffer memory systems, this architecture in
 
 ---
 
-## 💻 Quick Example
+## 📦 Installation & Quickstart
+
+### Option 1: Embedded SDK / Library (TypeScript / Node.js)
+```bash
+npm install sqlite-local-ai-memory
+```
+
+### Option 2: Model Context Protocol (MCP) Server (Zero-Install)
+Connect your AI assistant (**Claude Desktop, Cursor, Antigravity, Windsurf, Cline**) directly to a private local SQLite memory without writing code:
+
+Add to your `claude_desktop_config.json`, `mcp_config.json`, or Cursor MCP settings:
+```json
+{
+  "mcpServers": {
+    "sqlite-memory": {
+      "command": "npx",
+      "args": ["-y", "sqlite-local-ai-memory"],
+      "env": {
+        "SQLITE_MEM_PATH": "~/.local-ai-memory/memoria.db",
+        "GEMINI_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+*Exposes 4 native MCP tools: `save_fact`, `search_memory`, `get_current_state`, and `consolidate`.*
+
+---
+
+## 📊 Real-World Production Benchmarks
+Battle-tested in a 24/7 production autonomous WhatsApp assistant and engineering agents:
+* **0.00 MB Idle RAM** (vs 3,250 MB with Qdrant container).
+* **97.6% Retrieval Success** across 168 live conversational user interactions.
+* **15,900+ Vectors** maintained continuously for 5+ months without index corruption.
+
+👉 **Read the full empirical benchmark report:** [**`BENCHMARKS.md`**](BENCHMARKS.md)
+
+---
+
+## 💻 Quick Example (SDK)
 
 ```typescript
 import { MemoryEngine } from "sqlite-local-ai-memory";
@@ -400,6 +439,46 @@ Which port and user did we configure for the Postgres replica, and how are we tr
 | **Response Tone** | Accurate, concise, and purely bounded to historical facts. | Accurate, context-aware, and momentum-driven. |
 | **Context Overhead** | Ultra-low (only hit tokens) | Moderate (hits + active working cases) |
 | **Best For** | Search APIs, Q&A bots, technical inventory, CLI tools. | Developer copilots, personal AI assistants, live operations. |
+
+---
+
+## ⚓ Deterministic Entity Anchor (Zero-Loss Hard Facts Retention)
+
+When LLM agents synthesize and compress conversation history into high-level summaries (lossy cognitive compression), they frequently drop or distort precise operational coordinates—such as absolute filesystem paths, IP addresses, network ports, URLs, cluster node names, and ISO timestamps.
+
+To prevent critical factual drift, **`sqlite-local-ai-memory`** incorporates a **Deterministic Entity Anchor** mechanism:
+
+### How It Works
+
+1. **Deterministic Pipeline:** During `consolidate()` (AutoDream state synthesis), incoming working facts and active dashboard items are parsed by deterministic regex-anchored tokenizers independently of LLM synthesis.
+2. **Zero-Hallucination Extraction:** Hard technical entities are extracted strictly from factual data without passing through non-deterministic model temperature:
+   - **Filesystem Paths:** Absolute Unix paths (`/mnt/...`, `/etc/...`, `/var/...`, `/root/...`) and Windows drive paths.
+   - **IPs, Endpoints & Ports:** IPv4 addresses, ports (`:9020`, `:5432`), and full service URLs.
+   - **Infrastructure & Cluster Nodes:** Container and hypervisor identifiers (`LXC`, `VM`, `pve`, `minipc`, `laptop`).
+   - **Timestamps:** ISO dates and operational timestamps.
+3. **Dual-Channel Retention:**
+   - **Narrative Anchor:** Extracted entities are formatted as a dedicated section (`### [Deterministic Entity Anchor]`) appended to the sleep consolidation narrative.
+   - **Active Dashboard Card:** A persistent dashboard item tagged `[DETERMINISTIC_ANCHOR]` is saved to the SQLite active state (`DASHBOARD_UUID`). Calling `memory.getDashboard()` or MCP `get_current_state` instantly delivers exact paths and addresses at 0 ms latency without LLM recall loss.
+
+---
+
+## 🐳 Docker & Alpine Linux Deployment
+
+If you are packaging your application in lightweight Alpine-based Docker images (`node:alpine`), ensure native C++ build toolchains are installed so `better-sqlite3` bindings compile cleanly against `musl`:
+
+```dockerfile
+FROM node:20-alpine
+
+# Install build dependencies for native C++ SQLite bindings
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+CMD ["node", "dist/index.js"]
+```
 
 ---
 

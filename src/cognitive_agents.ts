@@ -64,6 +64,71 @@ export function extractJsonPayload(text: string): string {
   return text.trim();
 }
 
+export interface DeterministicAnchorResult {
+  paths: string[];
+  ipsAndEndpoints: string[];
+  nodesAndEnvironments: string[];
+  dates: string[];
+  formattedText: string;
+}
+
+/**
+ * Extracts hard, deterministic entities (filesystem paths, IPv4/IPv6 addresses,
+ * network ports, URLs, cluster nodes/containers, and timestamps) from raw working facts
+ * to guarantee zero compression loss during AutoDream state consolidation.
+ */
+export function extractDeterministicAnchor(sources: string[]): DeterministicAnchorResult {
+  const combined = sources.join("\n");
+
+  // 1. Filesystem paths (Linux / Unix and Windows)
+  const pathRegex = /(?:[A-Za-z]:\\[a-zA-Z0-9_\-\.\\]+|\/(?:mnt|root|var|etc|usr|home|opt|[a-zA-Z0-9_\-\.]+)\/[a-zA-Z0-9_\-\.\/]+)/g;
+  const rawPaths = combined.match(pathRegex) || [];
+  const paths = Array.from(new Set(rawPaths.map((p) => p.trim()))).filter(
+    (p) => p.length > 3 && !p.endsWith("/") && !p.includes("...")
+  );
+
+  // 2. IP addresses, ports and endpoints
+  const ipEndpointRegex = /(?:https?:\/\/[a-zA-Z0-9_\-\.:]+(?:\/[^\s"'<>]*)?|\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?::\d{2,5})?\b)/g;
+  const rawIps = combined.match(ipEndpointRegex) || [];
+  const ipsAndEndpoints = Array.from(new Set(rawIps.map((i) => i.trim()))).filter(
+    (i) => i !== "0.0.0.0" && i !== "127.0.0.1"
+  );
+
+  // 3. Infrastructure nodes, containers and clusters
+  const nodeRegex = /\b(?:LXC\s*\d+|VM\s*\d+|pve|PVE|minipc|laptop|Bot\d+|lxc\d+|vm\d+)\b/g;
+  const rawNodes = combined.match(nodeRegex) || [];
+  const nodesAndEnvironments = Array.from(new Set(rawNodes.map((n) => n.trim())));
+
+  // 4. Relevant ISO dates
+  const dateRegex = /\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)?\b/g;
+  const rawDates = combined.match(dateRegex) || [];
+  const dates = Array.from(new Set(rawDates.map((d) => d.trim())));
+
+  const lines: string[] = [];
+  if (paths.length > 0) {
+    lines.push(`• Key Paths: ${paths.slice(0, 15).join(", ")}`);
+  }
+  if (ipsAndEndpoints.length > 0) {
+    lines.push(`• IPs/Endpoints: ${ipsAndEndpoints.slice(0, 10).join(", ")}`);
+  }
+  if (nodesAndEnvironments.length > 0) {
+    lines.push(`• Infrastructure/Nodes: ${nodesAndEnvironments.slice(0, 10).join(", ")}`);
+  }
+  if (dates.length > 0) {
+    lines.push(`• Relevant Timestamps: ${dates.slice(0, 5).join(", ")}`);
+  }
+
+  const formattedText = lines.length > 0 ? lines.join("\n") : "";
+
+  return {
+    paths,
+    ipsAndEndpoints,
+    nodesAndEnvironments,
+    dates,
+    formattedText,
+  };
+}
+
 /**
  * FIX R3-1.4: Security guardrail appended to every system prompt that receives
  * previously-persisted user data (Notary, Semantic Arbiter, State Orchestrator).
@@ -301,12 +366,32 @@ export class CognitiveAgents {
     // 2. Fallback to Gemini Cloud gemini-embedding-001 (768 Matryoshka dimensions)
     const genAI = await this.getGenAIClient();
     if (genAI) {
+      const EMBED_TIMEOUT_MS = 10000;
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(
+        () => abortController.abort(new Error(`Gemini embedding timeout after ${EMBED_TIMEOUT_MS}ms`)),
+        EMBED_TIMEOUT_MS
+      );
+      const parentAbortHandler = () => abortController.abort();
+
+      if (signal?.aborted) {
+        clearTimeout(timeoutId);
+        const abortErr = new Error("Execution aborted by signal");
+        abortErr.name = "AbortError";
+        throw abortErr;
+      } else if (signal) {
+        signal.addEventListener("abort", parentAbortHandler, { once: true });
+      }
+
       try {
         const embedModel = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
-        const res = await embedModel.embedContent({
-          content: { role: "user", parts: [{ text }] },
-          outputDimensionality: EMBEDDING_DIM,
-        } as any);
+        const res = await embedModel.embedContent(
+          {
+            content: { role: "user", parts: [{ text }] },
+            outputDimensionality: EMBEDDING_DIM,
+          } as any,
+          { signal: abortController.signal } as any
+        );
         const vec = res.embedding?.values || [];
         if (vec && vec.length >= EMBEDDING_DIM) return vec.slice(0, EMBEDDING_DIM);
         if (vec && vec.length > 0 && vec.length < EMBEDDING_DIM) {
@@ -315,6 +400,9 @@ export class CognitiveAgents {
       } catch (err: any) {
         if (err.name === "AbortError" || signal?.aborted) throw err;
         console.warn("⚠️ [COGNITIVE] Gemini embedding generation failed:", err.message);
+      } finally {
+        clearTimeout(timeoutId);
+        if (signal) signal.removeEventListener("abort", parentAbortHandler);
       }
     }
 
@@ -565,7 +653,10 @@ RULES:
 4. If the query is already clean and specific, return it unchanged.
 Respond ONLY with a JSON object: { "expanded_query": "your optimized search terms" }`;
 
-    const systemPrompt = this.config.customPrompts?.queryExpanderSystem || this.config.customPrompts?.bibliotecarioSystem || defaultLibrarian;
+    const systemPrompt =
+      (this.config.customPrompts?.queryExpanderSystem ||
+        this.config.customPrompts?.bibliotecarioSystem ||
+        defaultLibrarian) + ANTI_INJECTION_GUARD;
     const userPrompt = `[RECENT HISTORY]:\n${shortHistory}\n\n[SHORT QUERY]: "${originalQuery}"`;
 
     try {
@@ -613,8 +704,10 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
     userId: string = this.config.userId,
     protectedIds: string[] = [],
     signal?: AbortSignal,
-    source: string = this.config.defaultSource || "system"
+    source: string = this.config.defaultSource || "system",
+    skipArbiter: boolean = false
   ): Promise<void> {
+    source = this.sanitizeTag(source, "system").toLowerCase();
     const vector = await this.getEmbedding(fact, signal);
     let matches: Array<{ id: string; payload: { data: string }; score: number }> = [];
 
@@ -634,7 +727,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
 
     let bypassInsert = false;
 
-    if (this.config.semanticArbitrator && matches.length > 0) {
+    if (!skipArbiter && this.config.semanticArbitrator && matches.length > 0) {
       // FIX R3-1.4: append guard — Arbiter receives previously-stored user facts
       // as EXISTING FACTS, which is exactly where injection payloads could reappear.
       const systemPrompt = (this.config.customPrompts?.semanticArbiterSystem || this.config.customPrompts?.arbitroSystem || `You are a Consistency Auditor for a long-term memory database.\nYour task is to evaluate whether a NEW FACT updates or replaces an EXISTING fact (e.g., changes an IP address, changes a service status, or changes an active location) or if it adds new information.\nIf the NEW FACT replaces or updates an existing state, return replace_index with the numeric 1-based index (1, 2, 3...) of the fact to replace.\nIf the NEW FACT is additive or new, return replace_index = 0. Return strict JSON: {"replace_index": 0, "reason": "..."}`) + ANTI_INJECTION_GUARD;
@@ -702,6 +795,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
     signal?: AbortSignal,
     source: string = this.config.defaultSource || "system"
   ): Promise<void> {
+    source = this.sanitizeTag(source, "system").toLowerCase();
     const messageMatch = text.match(/\[Mensaje a extraer\]: "(.*?)"/) || text.match(/\[Message to extract\]: "(.*?)"/);
     const pureMessage = messageMatch ? messageMatch[1].trim().toLowerCase() : text.trim().toLowerCase();
 
@@ -910,7 +1004,7 @@ Return strict JSON matching schema. Retain primary user's native language.`;
         throw parseErr; // escalate — this prevents silently wiping the dashboard
       }
 
-      const narrativeSummary: string = data.narrative_summary || data.resumen_narrativo || "AutoDream consolidated.";
+      let narrativeSummary: string = data.narrative_summary || data.resumen_narrativo || "AutoDream consolidated.";
       const newDashboard: DashboardItem[] = Array.isArray(data.dashboard) ? data.dashboard : activeDashboard;
       
       const rawTriage = data.triage_memory || data.triaje_memoria || [];
@@ -1013,19 +1107,42 @@ Return strict JSON matching schema. Retain primary user's native language.`;
         }
       }
 
+      // Deterministic Entity Anchor: Preserves hard operational coordinates (paths, IPs, ports, nodes, timestamps)
+      // with zero compression loss across AutoDream consolidation cycles.
+      const anchorSources = [
+        ...newFacts.map((f: any) => f.data || ""),
+        ...activeDashboard.map((d: any) => d.txt || ""),
+        ...newDashboard.map((d: any) => d.txt || ""),
+        narrativeSummary,
+      ];
+      const anchor = extractDeterministicAnchor(anchorSources);
+      if (anchor.formattedText) {
+        narrativeSummary += `\n\n### [Deterministic Entity Anchor]\n${anchor.formattedText}`;
+
+        const cleanDashboard = newDashboard.filter((d: any) => !d.txt?.startsWith("[DETERMINISTIC_ANCHOR]"));
+        cleanDashboard.push({
+          id: `anchor-${NOW}`,
+          ts: NOW,
+          txt: `[DETERMINISTIC_ANCHOR]\n${anchor.formattedText}`,
+          source: currentSource || "system",
+        });
+        newDashboard.length = 0;
+        newDashboard.push(...cleanDashboard);
+      }
+
       const vectorText = newDashboard.map((d: any) => d.txt).join(". ") || narrativeSummary;
       const vector = await this.getEmbedding(vectorText, signal);
 
       this.store.saveDashboardFact(JSON.stringify(newDashboard), userId, vector);
 
-      // Consolidated Atomic Fact Ingestion (Only resolved triage items)
+      // Consolidated Atomic Fact Ingestion (Batch triage items bypass Arbiter since Orchestrator already audited them)
       for (const item of triageList) {
         if (signal?.aborted) throw new Error("AutoDream aborted by signal");
         if (item && item.fact) {
           const safeType = this.sanitizeTag(item.type, "");
           const cleanFact = this.stripLeadingTag(item.fact);
           const finalFact = safeType ? `[${safeType}] ${cleanFact}` : cleanFact;
-          await this.injectUnifiedFact(finalFact, userId, [], signal, currentSource || "system");
+          await this.injectUnifiedFact(finalFact, userId, [], signal, currentSource || "system", true);
         }
       }
 

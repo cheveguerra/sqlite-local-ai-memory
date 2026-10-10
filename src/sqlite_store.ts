@@ -32,8 +32,19 @@ export class SqliteStore {
 
   private resolveDatabasePath(): string {
     const envPath = process.env.SQLITE_MEM_PATH;
-    if (envPath && fs.existsSync(path.dirname(envPath))) return envPath;
-    return LOCAL_FALLBACK_PATH;
+    if (!envPath) return LOCAL_FALLBACK_PATH;
+
+    try {
+      const dir = path.dirname(envPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return envPath;
+    } catch (err: any) {
+      console.warn(
+        `⚠️ [SQLITE_STORE] SQLITE_MEM_PATH="${envPath}" unusable (${err.message}). ` +
+        `Falling back to: ${LOCAL_FALLBACK_PATH}`
+      );
+      return LOCAL_FALLBACK_PATH;
+    }
   }
 
   private initDatabase(dbPath: string): DatabaseType {
@@ -162,13 +173,15 @@ export class SqliteStore {
 
       let rows: any[];
       if (userId) {
+        const users = userId === 'general' ? ['general'] : [userId, 'general'];
+        const placeholders = users.map(() => '?').join(', ');
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, rank
           FROM recuerdos_fts
-          WHERE recuerdos_fts MATCH ? AND user_id = ?
+          WHERE recuerdos_fts MATCH ? AND user_id IN (${placeholders})
           ORDER BY rank LIMIT ?
         `);
-        rows = stmt.all(ftsQuery, userId, limit);
+        rows = stmt.all(ftsQuery, ...users, limit);
       } else {
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, rank
@@ -198,16 +211,18 @@ export class SqliteStore {
     try {
       let rows: any[];
       if (userId) {
+        const users = userId === 'general' ? ['general'] : [userId, 'general'];
+        const placeholders = users.map(() => '?').join(', ');
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, vector_blob
           FROM recuerdos_vectores
-          WHERE vector_blob IS NOT NULL AND user_id = ?
+          WHERE vector_blob IS NOT NULL AND user_id IN (${placeholders})
           ORDER BY created_at DESC
           LIMIT 5000
         `);
-        rows = stmt.all(userId);
+        rows = stmt.all(...users);
         if (rows.length >= 5000) {
-          console.warn(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit for user ${userId}. Consider enabling ANN indexing for better scalability.`);
+          console.warn(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit for users [${users.join(', ')}]. Consider enabling ANN indexing for better scalability.`);
         }
       } else {
         const stmt = this.db.prepare(`
@@ -250,7 +265,7 @@ export class SqliteStore {
   public insertMemoryFact(
     id: string,
     data: string,
-    userId: string = "user_default",
+    userId: string = "cheve",
     vector?: number[],
     source: string = "system"
   ): boolean {
@@ -258,8 +273,17 @@ export class SqliteStore {
       const now = new Date().toISOString();
       const vectorBlob = vector && vector.length === EMBEDDING_DIM ? this.quantizeVectorInt8(vector) : null;
 
+      const targetUser = (
+        data.startsWith('[FAMILIA]') || data.startsWith('[DOCUMENTOS]') || data.startsWith('[DESARROLLO]') ||
+        data.startsWith('[SISTEMA]') || data.startsWith('[INFRAESTRUCTURA]') || data.startsWith('[SERVICIOS_HOGAR]') ||
+        data.startsWith('[CFE]') || data.startsWith('[COMPRAS]') || data.startsWith('[ARQUITECTURA]') ||
+        data.startsWith('[BUGFIX]') || data.startsWith('[HALLAZGO]') || data.startsWith('[CONFIG]')
+      ) ? 'general' : (userId || 'cheve');
+
+      const deleteFts = this.db.prepare(`DELETE FROM recuerdos_fts WHERE point_id = ?`);
+
       const insertFts = this.db.prepare(`
-        INSERT OR REPLACE INTO recuerdos_fts (point_id, user_id, data, source, created_at)
+        INSERT INTO recuerdos_fts (point_id, user_id, data, source, created_at)
         VALUES (?, ?, ?, ?, ?)
       `);
 
@@ -269,8 +293,9 @@ export class SqliteStore {
       `);
 
       this.db.transaction(() => {
-        insertFts.run(id, userId, data.trim(), source, now);
-        insertVec.run(id, userId, data.trim(), source, now, vectorBlob);
+        deleteFts.run(id);
+        insertFts.run(id, targetUser, data.trim(), source, now);
+        insertVec.run(id, targetUser, data.trim(), source, now, vectorBlob);
       })();
 
       return true;

@@ -19,6 +19,11 @@
   - `recuerdos_fts`: Tabla virtual FTS5 (`point_id`, `user_id`, `data`, `source`, `created_at`).
   - `recuerdos_vectores`: Tabla relacional con BLOB cuantizado Int8 (`point_id`, `user_id`, `data`, `source`, `created_at`, `vector_blob`).
 - **Pizarrón (Estado Consolidado):** UUID especial `00000000-0000-0000-0000-000000000000`.
+- **Requerimientos BD para Dimensión Configurable (ej. OpenAI 1536 dims / 384 / 1024):**
+  * El schema actual (`BLOB` en `recuerdos_vectores`) ya es agnóstico en tamaño binario (almacena 768 bytes para 768d, 1536 bytes para 1536d en Int8).
+  * **Tabla de Control Requerida:** `CREATE TABLE IF NOT EXISTS memory_settings (key TEXT PRIMARY KEY, value TEXT);` para fijar `embedding_dim` y `embedding_model` por base de datos.
+  * **Aislamiento de Espacio Latente:** La base de datos debe validar al inicio que la dimensión del embedder configurado coincida con `memory_settings.embedding_dim`.
+  * **Protocolo de Migración:** Si el usuario cambia el modelo de embedding en una BD existente, los vectores antiguos quedan matemáticamente incompatibles (prohibido mezclar espacios latentes); se requiere purgar los blobs (`vector_blob = NULL`) y ejecutar `backfillMissingVectors()` con el nuevo modelo.
 
 ## 4. Reglas Críticas e Invariantes
 - **Publicación Pública (100% Inglés):** Todos los métodos, tipos, parámetros y prompts están escritos en inglés técnico.
@@ -32,6 +37,7 @@
 - **Bypass Opcional en Query Expander:** `EXPANDER_MODEL` admite `none` o vacío para desactivar el agente, ejecutando búsquedas literales en 0 ms sin costo de API ni riesgo de envenenamiento léxico en FTS5.
 - **Protección de Agentes Esenciales:** `GATEKEEPER`, `NOTARY`, `STATE_ORCHESTRATOR` y `SEMANTIC_ARBITER` son indispensables. Si se configuran con `off`/`none`/`disabled`, el sistema emite `console.warn` explicativo y aplica fallback defensivo a los modelos por defecto.
 - **Plantilla `.env.example`:** Documentación completa de variables, endpoints y modelos recomendados.
+- **Invariante de Espacio Vectorial Único:** Una base de datos `memoria.db` solo puede contener vectores pertenecientes al mismo modelo y dimensión; nunca mezclar embeddings de proveedores o dimensiones distintas en el cálculo de similitud coseno.
 
 ## 5. Tareas Pendientes
 - [x] Aplicar inyección de alias `memory` en `sqlite_store.ts` para retrocompatibilidad.
@@ -59,3 +65,13 @@
 - [x] (v1.4.1) Sincronizar versión de `mcp_server.ts` a 1.4.1 y agregar `userId` a todas las herramientas MCP.
 - [x] (v1.4.1) Implementar `createEssentialConfig` con advertencias en consola para agentes cognitivos esenciales ante valores `off`/`disabled`.
 - [x] (v1.4.1) Compilar y certificar build limpio de TypeScript (`npm run build`).
+- [x] (v1.4.2) Stream de telemetría resiliente: listener de error en `fs.WriteStream` para evitar crashes ante fallos de I/O (FIX-1).
+- [x] (v1.4.2) Fallback Gemini de embeddings con timeout (10s) y AbortController para prevenir bloqueos indefinidos en KeyedMutex (FIX-2).
+- [x] (v1.4.2) Eliminación previa en FTS5 (`DELETE` antes de `INSERT`) para evitar filas duplicadas u obsoletas en actualizaciones in-place (FIX-3).
+- [x] (v1.4.2) Creación recursiva del directorio padre en `resolveDatabasePath()` para respetar rutas personalizadas en `SQLITE_MEM_PATH` (FIX-4).
+- [x] (v1.4.2) Guarda anti-inyección (`ANTI_INJECTION_GUARD`) integrada en el prompt de sistema del Query Expander (FIX-5).
+- [x] (v1.4.2) Sanitización de tags en `source` a nivel de librería (`injectUnifiedFact` y `saveMemory`) para robustecer el guardrail determinista (FIX-6).
+- [x] (v1.4.2) Compilación y certificación de build limpio de TypeScript (`npm run build`).
+- [ ] (Roadmap v1.5.0) Desacoplar constante rígida `EMBEDDING_DIM = 768` para soportar modelos Cloud de 1536 dimensiones (OpenAI text-embedding-3-small) y modelos ligeros de 384/1024 dims.
+- [ ] (Roadmap v1.5.0) Implementar tabla `memory_settings` en SQLite para persistir y validar dimensión/modelo activo con auto-migración/re-indexado.
+

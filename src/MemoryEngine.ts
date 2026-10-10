@@ -78,6 +78,11 @@ export class MemoryEngine {
           fs.mkdirSync(targetDir, { recursive: true });
         }
         this.telemetryStream = fs.createWriteStream(this.telemetryPath, { flags: "a" });
+        this.telemetryStream.on("error", (err) => {
+          console.warn(`⚠️ [MEMORY:TELEMETRY] Stream error, disabling telemetry: ${err.message}`);
+          this.telemetry = false;
+          this.telemetryStream = undefined;
+        });
       } catch (err: any) {
         if (this.debug) {
           console.warn(`⚠️ [MEMORY:TELEMETRY] Failed to initialize telemetry stream: ${err.message}`);

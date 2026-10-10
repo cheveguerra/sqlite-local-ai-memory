@@ -6,8 +6,8 @@
  */
 
 export const CONFIG_USER = {
-  NAME: "User",
-  ID: "user_default",
+  NAME: "Cheve",
+  ID: "cheve",
 };
 
 /** Standard vector dimensionality for the hybrid retrieval engine */
