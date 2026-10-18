@@ -174,7 +174,12 @@ export class CognitiveAgents {
   }
 
   private stripLeadingTag(text: string): string {
-    return text.replace(/^\[[A-Za-z0-9_\-\/:]{1,80}\]\s*/, "").trim();
+    const collapsed = text.replace(/(\[[A-Za-z0-9_\-\/:]{1,80}\])(?:\s+\1)+/gi, "$1").trim();
+    const stackedCategories = /^(?:\[(?:DEVELOPMENT|DESARROLLO|TECHNICAL|TECNICO|PERSONAL|GENERAL|SYSTEM|PREFERENCE|DOCUMENTATION|DOCUMENTACION|AUTOMATION|AUTOMATIZACION|MEMORY|MEMORIA|FINDING|HALLAZGO|ARCHITECTURE|ARQUITECTURA|BUGFIX|SECURITY|SEGURIDAD|INFRASTRUCTURE|INFRAESTRUCTURA|OPERATIONS|OPERACIONES|INVESTIGATION|INVESTIGACION)\]\s*)+/i;
+    if (stackedCategories.test(collapsed)) {
+      return collapsed.replace(stackedCategories, "").trim();
+    }
+    return collapsed.replace(/^\[[A-Za-z0-9_\-\/:]{1,80}\]\s*/, "").trim();
   }
 
   private async getGenAIClient(): Promise<any> {
@@ -722,6 +727,19 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
       }));
     } else {
       console.error(`⚠️ [sqlite-local-ai-memory] Fact saved WITHOUT vector embedding (No active embedder). Precision degrades gracefully to FTS5 BM25 exact search mode until embedder is configured.`);
+    }
+
+    const canonicalIncoming = this.stripLeadingTag(fact).replace(/\s+/g, " ").toLowerCase();
+    const exactMatch = matches.find(
+      (m) => this.stripLeadingTag(m.payload.data).replace(/\s+/g, " ").toLowerCase() === canonicalIncoming
+    );
+    if (exactMatch) {
+      protectedIds.push(exactMatch.id);
+      const ok = this.store.insertMemoryFact(exactMatch.id, fact, userId, vector, source);
+      if (!ok) {
+        throw new Error(`Failed to update existing fact in SQLite: "${fact.slice(0, 50)}..."`);
+      }
+      return;
     }
 
     const pointId = crypto.randomUUID();
