@@ -11,7 +11,7 @@
     }
   },
   "bin": {
-    "sqlite-local-ai-memory": "./dist/mcp_server.js"
+    "sqlite-local-ai-memory": "dist/mcp_server.js"
   },
   "type": "module",
   "files": [
