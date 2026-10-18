@@ -175,11 +175,50 @@ export class CognitiveAgents {
 
   private stripLeadingTag(text: string): string {
     const collapsed = text.replace(/(\[[A-Za-z0-9_\-\/:]{1,80}\])(?:\s+\1)+/gi, "$1").trim();
-    const stackedCategories = /^(?:\[(?:DEVELOPMENT|DESARROLLO|TECHNICAL|TECNICO|PERSONAL|GENERAL|SYSTEM|PREFERENCE|DOCUMENTATION|DOCUMENTACION|AUTOMATION|AUTOMATIZACION|MEMORY|MEMORIA|FINDING|HALLAZGO|ARCHITECTURE|ARQUITECTURA|BUGFIX|SECURITY|SEGURIDAD|INFRASTRUCTURE|INFRAESTRUCTURA|OPERATIONS|OPERACIONES|INVESTIGATION|INVESTIGACION)\]\s*)+/i;
-    if (stackedCategories.test(collapsed)) {
-      return collapsed.replace(stackedCategories, "").trim();
+    const structuralRootCategories = /^(?:\[[A-Za-z0-9_\-\/:]{1,40}\]\s+)*\[(?:DEVELOPMENT|DESARROLLO|PERSONAL|TECHNICAL|TECNICO|TÉCNICO|GENERAL|SYSTEM|FACT)\]\s*/i;
+    if (structuralRootCategories.test(collapsed)) {
+      return collapsed.replace(structuralRootCategories, "").trim();
+    }
+    if (/^\[(?:SYMPTOM|ROOT_CAUSE|SOLUTION|PREVENTIVE_RULE|UNRESOLVED_CASE|PREFERENCE|INCUBATOR)/i.test(collapsed)) {
+      return collapsed;
     }
     return collapsed.replace(/^\[[A-Za-z0-9_\-\/:]{1,80}\]\s*/, "").trim();
+  }
+
+  private normalizeTriageFact(rawFact: string, rawType?: unknown): string {
+    let cleaned = rawFact.replace(/(\[[A-Za-z0-9_\-\/:]{1,80}\])(?:\s+\1)+/gi, "$1").trim();
+    // Strip any arbitrary tags sitting in front of a canonical root category (e.g. [VALIDATION] [DEVELOPMENT] -> [DEVELOPMENT])
+    cleaned = cleaned.replace(
+      /^(?:\[[A-Za-z0-9_\-\/:]{1,40}\]\s+)+(?=\[(?:DEVELOPMENT|DESARROLLO|PERSONAL|TECHNICAL|TECNICO|TÉCNICO)\])/i,
+      ""
+    ).trim();
+    // Collapse stacked canonical root categories (e.g. [DEVELOPMENT] [DESARROLLO] -> [DEVELOPMENT])
+    cleaned = cleaned.replace(
+      /^(\[(?:DEVELOPMENT|DESARROLLO|PERSONAL|TECHNICAL|TECNICO|TÉCNICO)\])\s+(?:\[(?:DEVELOPMENT|DESARROLLO|PERSONAL|TECHNICAL|TECNICO|TÉCNICO)\]\s*)+/i,
+      "$1 "
+    ).trim();
+
+    if (/^\[(?:DEVELOPMENT|DESARROLLO|PERSONAL|TECHNICAL|TECNICO|TÉCNICO)\]/i.test(cleaned)) {
+      return cleaned;
+    }
+
+    const typeStr = this.sanitizeTag(rawType, "TECHNICAL");
+    let canonicalCategory = "TECHNICAL";
+    if (typeStr === "PERSONAL" || typeStr === "PREFERENCE" || /^\[PREFERENCE\]/i.test(cleaned)) {
+      canonicalCategory = "PERSONAL";
+    } else if (
+      typeStr === "DEVELOPMENT" ||
+      typeStr === "DESARROLLO" ||
+      typeStr === "ARCHITECTURE" ||
+      typeStr === "ARQUITECTURA" ||
+      typeStr === "DOCUMENTATION" ||
+      typeStr === "DOCUMENTACION"
+    ) {
+      canonicalCategory = "DEVELOPMENT";
+    }
+
+    const body = this.stripLeadingTag(cleaned);
+    return `[${canonicalCategory}] ${body}`;
   }
 
   private async getGenAIClient(): Promise<any> {
@@ -985,8 +1024,9 @@ Your task is to analyze recent facts and current working state, producing a stri
    - If the dashboard contains items or open cases from other projects (e.g. tagged with [OTHER_PROJECT]), you MUST PRESERVE THEM EXACTLY AS THEY ARE.
    - Do NOT delete or overwrite items belonging to other projects unless the new facts explicitly resolve or update them.
    - Only update, resolve, or append items relevant to the current project/context being consolidated.
-3. "triage_memory": Array of consolidated facts to inject into long-term memory:
+3. "triage_memory": Array of {"type": "DEVELOPMENT" | "TECHNICAL" | "PERSONAL", "fact": string} consolidated facts to inject into long-term memory:
    CRITICAL REQUIREMENT FOR TRIAGE FACTS:
+   - "type" MUST be strictly one of: "DEVELOPMENT", "TECHNICAL", or "PERSONAL". Never invent custom type names.
    - Maximum Information Density: Include specific technical details, exact error codes, file paths, parameters, software versions, and concrete values. NEVER use vague summaries like "fixed issue" or "updated config".
    - Zero Semantic Loss: Retain full technical context and exact cause-effect reasoning without diluting information.
    - Formats:
@@ -1160,9 +1200,7 @@ Return strict JSON matching schema. Retain primary user's native language.`;
       for (const item of triageList) {
         if (signal?.aborted) throw new Error("AutoDream aborted by signal");
         if (item && item.fact) {
-          const safeType = this.sanitizeTag(item.type, "");
-          const cleanFact = this.stripLeadingTag(item.fact);
-          const finalFact = safeType ? `[${safeType}] ${cleanFact}` : cleanFact;
+          const finalFact = this.normalizeTriageFact(item.fact, item.type);
           await this.injectUnifiedFact(finalFact, userId, [], signal, currentSource || "system", true);
         }
       }
