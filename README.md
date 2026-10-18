@@ -13,6 +13,21 @@ Most LLM long-term memory frameworks require running complex Docker microservice
 
 ---
 
+## 🎯 What It Is & How It Works (In Plain English)
+
+Imagine hiring a brilliant assistant who **forgets everything the moment you close the chat window**. Next time you talk, you have to explain your project, your servers, and your preferences all over again. Or worse: you paste a massive chat history into the prompt, burning thousands of tokens until the AI gets confused and starts making things up.
+
+**`sqlite-local-ai-memory` gives your AI a permanent, organized brain stored in a single file on your own computer**—no cloud accounts, no monthly fees, and no complex database servers required.
+
+Instead of dumping a giant, messy text log into the AI's prompt on every turn, this library organizes memory the same way the human brain does:
+
+1. **Working Memory (*What we are doing right now*):** Keeps track of the active task, current status, and immediate next steps.
+2. **Semantic Knowledge (*Facts that rarely change*):** Stores concrete facts—like your server IPs, user preferences, or project rules—organized by category. If a fact changes (e.g., a server moves to a new IP), it updates the current fact while keeping an audit trail of the old one.
+3. **Episodic History (*Past conversations & logs*):** Saves the chronological flow of everything that has happened so the AI can search back in time whenever you ask *"What did we do last Tuesday?"*
+4. **Sleep Consolidation (*AutoDream*):** Periodically, a background AI agent wakes up, reads recent messy chat logs, extracts new permanent facts, cleans up outdated notes, and keeps active troubleshooting cases open until you confirm they are solved—just like human memory consolidation during sleep.
+
+---
+
 ## ⚡ What Makes This Unique? (The "Secret Sauce")
 
 Unlike basic vector wrappers or chat buffer memory systems, this architecture incorporates 6 specialized cognitive mechanisms driven by dedicated AI agents and bare-metal algorithms:
