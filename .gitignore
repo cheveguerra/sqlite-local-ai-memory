@@ -1,14 +1,14 @@
-# Dependencias y Compilación
+# Dependencies and Build
 node_modules/
 dist/
 npm-debug.log*
 yarn-debug.log*
 
-# Credenciales y Secretos
+# Credentials and Secrets
 .env
 *.env
 
-# Base de Datos y Logs Temporales
+# Databases and Temporary Logs
 *.db
 *.db-wal
 *.db-shm
@@ -16,7 +16,10 @@ yarn-debug.log*
 *.log
 *.jsonl
 
-# IDEs
+# IDEs and Local Context
 .vscode/
 .idea/
 .DS_Store
+CONTEXT.md
+graphify-out/
+
