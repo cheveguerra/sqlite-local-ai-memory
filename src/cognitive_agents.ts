@@ -248,12 +248,12 @@ export class CognitiveAgents {
     const ollamaChatEndpoint = `${apiUrl}/chat`;
     const ollamaEmbedEndpoint = `${apiUrl}/embed`;
 
-    const gatekeeperTarget = parseModelTarget(process.env.GATEKEEPER_MODEL || process.env.PORTERO_MODEL, "ollama", "qwen2.5-coder:1.5b");
+    const gatekeeperTarget = parseModelTarget(process.env.GATEKEEPER_MODEL || process.env.PORTERO_MODEL, "gemini", "gemini-2.5-flash-lite");
     const expanderTarget = parseModelTarget(process.env.EXPANDER_MODEL ?? process.env.LIBRARIAN_MODEL, "gemini", "gemini-2.5-flash-lite");
     const notaryTarget = parseModelTarget(process.env.NOTARY_MODEL, "gemini", "gemini-2.5-flash-lite");
     const orchestratorTarget = parseModelTarget(process.env.ORCHESTRATOR_MODEL, "gemini", "gemini-2.5-flash-lite");
     const arbiterTarget = parseModelTarget(process.env.ARBITER_MODEL, "gemini", "gemini-2.5-flash-lite");
-    const embedderTarget = parseModelTarget(process.env.EMBEDDER_MODEL, "ollama", "nomic-embed-text");
+    const embedderTarget = parseModelTarget(process.env.EMBEDDER_MODEL, "gemini", "gemini-embedding-001");
 
     const createConfig = (
       desc: string,
@@ -263,15 +263,24 @@ export class CognitiveAgents {
     ): AgentModelConfig | null => {
       if (!target) return null;
       const endpoint = target.provider === "ollama" ? ollamaChatEndpoint : undefined;
+      const options: Array<{ provider: ModelProvider; model: string; endpoint?: string; timeout?: number }> = [
+        { provider: target.provider, model: target.model, endpoint, timeout: defaultTimeout },
+      ];
+      if (target.provider === "gemini" && !this.config.geminiApiKey) {
+        options.push({
+          provider: "ollama",
+          model: process.env.OLLAMA_DEFAULT_MODEL || "qwen2.5:1.5b",
+          endpoint: ollamaChatEndpoint,
+          timeout: defaultTimeout,
+        });
+      }
       return {
         desc,
         schemaKey,
         provider: target.provider,
         model: target.model,
         endpoint,
-        options: [
-          { provider: target.provider, model: target.model, endpoint, timeout: defaultTimeout },
-        ],
+        options,
       };
     };
 
@@ -299,13 +308,24 @@ export class CognitiveAgents {
         };
       }
       const ep = target.provider === "ollama" ? (endpoint || ollamaChatEndpoint) : undefined;
+      const options: Array<{ provider: ModelProvider; model: string; endpoint?: string; timeout?: number }> = [
+        { provider: target.provider, model: target.model, endpoint: ep, timeout: defaultTimeout },
+      ];
+      if (target.provider === "gemini" && !this.config.geminiApiKey) {
+        options.push({
+          provider: "ollama",
+          model: process.env.OLLAMA_DEFAULT_MODEL || "qwen2.5:3b",
+          endpoint: endpoint || ollamaChatEndpoint,
+          timeout: defaultTimeout,
+        });
+      }
       return {
         desc,
         schemaKey,
         provider: target.provider,
         model: target.model,
         endpoint: ep,
-        options: [{ provider: target.provider, model: target.model, endpoint: ep, timeout: defaultTimeout }],
+        options,
       };
     };
 
@@ -314,8 +334,7 @@ export class CognitiveAgents {
       "none",
       gatekeeperTarget,
       "GATEKEEPER_MODEL",
-      "ollama",
-      "qwen2.5-coder:1.5b",
+      "gemini", "gemini-2.5-flash-lite",
       15000,
       ollamaChatEndpoint
     );
@@ -354,20 +373,20 @@ export class CognitiveAgents {
 
     if (!embedderTarget) {
       console.error(
-        `[sqlite-local-ai-memory] WARNING: Essential cognitive agent "Embedding Generator" (EMBEDDER_MODEL) cannot be disabled. Falling back to default: ollama/nomic-embed-text`
+        `[sqlite-local-ai-memory] WARNING: Essential cognitive agent "Embedding Generator" (EMBEDDER_MODEL) cannot be disabled. Falling back to default: gemini/gemini-embedding-001`
       );
     }
 
     const EMBEDDER: AgentModelConfig = {
       desc: "Embedding Generator",
       schemaKey: "none",
-      provider: embedderTarget?.provider || "ollama",
-      model: embedderTarget?.model || "nomic-embed-text",
+      provider: embedderTarget?.provider || "gemini",
+      model: embedderTarget?.model || "gemini-embedding-001",
       endpoint: embedderTarget?.provider === "ollama" ? ollamaEmbedEndpoint : undefined,
       options: [{
-        provider: embedderTarget?.provider || "ollama",
-        model: embedderTarget?.model || "nomic-embed-text",
-        endpoint: embedderTarget?.provider === "ollama" ? ollamaEmbedEndpoint : undefined,
+        provider: embedderTarget?.provider || "gemini",
+        model: embedderTarget?.model || "gemini-embedding-001",
+        endpoint: (embedderTarget?.provider || "gemini") === "ollama" ? ollamaEmbedEndpoint : undefined,
         timeout: 10000,
       }],
     };
@@ -386,12 +405,14 @@ export class CognitiveAgents {
     const matrix = this.getAgentsMatrix();
     const vecConfig = matrix.EMBEDDER;
     const endpoint = vecConfig.endpoint || `${this.getOllamaApiUrl()}/embed`;
+    const genAI = await this.getGenAIClient();
 
-    // 1. Try local Ollama first if configured as primary embedder
-    if (vecConfig.provider === "ollama") {
+    // 1. Try local Ollama first if configured as primary embedder OR if Gemini is default but no GEMINI_API_KEY was provided
+    if (vecConfig.provider === "ollama" || (vecConfig.provider === "gemini" && !genAI)) {
+      const ollamaEmbedModel = vecConfig.provider === "ollama" ? vecConfig.model : (process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text");
       try {
         const res = await axios.post(endpoint, {
-          model: vecConfig.model,
+          model: ollamaEmbedModel,
           prompt: text,
           input: text,
         }, { timeout: 8000, signal });
@@ -409,8 +430,7 @@ export class CognitiveAgents {
       }
     }
 
-    // 2. Fallback to Gemini Cloud gemini-embedding-001 (768 Matryoshka dimensions)
-    const genAI = await this.getGenAIClient();
+    // 2. Gemini Cloud gemini-embedding-001 (768 Matryoshka dimensions)
     if (genAI) {
       const EMBED_TIMEOUT_MS = 10000;
       const abortController = new AbortController();

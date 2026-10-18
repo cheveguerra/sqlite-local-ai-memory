@@ -18,6 +18,13 @@
       },
       "environmentVariables": [
         {
+          "name": "GEMINI_API_KEY",
+          "description": "Google Gemini API key for Out-of-the-Box cloud cognitive agents and embeddings (gemini-2.5-flash-lite & gemini-embedding-001).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
           "name": "SQLITE_AI_MEMORY_DB",
           "description": "Optional custom path to the SQLite database file (defaults to ./agent_memory.db).",
           "isRequired": false,
