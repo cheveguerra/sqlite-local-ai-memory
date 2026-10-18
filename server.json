@@ -7,12 +7,12 @@
     "url": "https://github.com/cheveguerra/sqlite-local-ai-memory",
     "source": "github"
   },
-  "version": "1.4.5",
+  "version": "1.4.6",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "sqlite-local-ai-memory",
-      "version": "1.4.5",
+      "version": "1.4.6",
       "transport": {
         "type": "stdio"
       },
@@ -25,8 +25,8 @@
           "isSecret": true
         },
         {
-          "name": "SQLITE_AI_MEMORY_DB",
-          "description": "Optional custom path to the SQLite database file (defaults to ./agent_memory.db).",
+          "name": "SQLITE_MEM_PATH",
+          "description": "Optional custom path to the SQLite database file (defaults to ~/.local-ai-memory/memoria.db).",
           "isRequired": false,
           "format": "string",
           "isSecret": false

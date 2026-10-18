@@ -26,7 +26,7 @@ const memory = new MemoryEngine({
 
 const server = new McpServer({
   name: "sqlite-local-ai-memory",
-  version: "1.4.5",
+  version: "1.4.6",
 });
 
 function safeErrorMessage(error: any, fallbackContext: string): string {
