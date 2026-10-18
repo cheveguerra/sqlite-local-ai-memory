@@ -6,8 +6,12 @@
  */
 
 export const CONFIG_USER = {
-  NAME: "Cheve",
-  ID: "cheve",
+  get NAME(): string {
+    return process.env.MEMORY_USER_NAME || process.env.USER_NAME || "User";
+  },
+  get ID(): string {
+    return process.env.MEMORY_USER_ID || process.env.USER_ID || "user_default";
+  },
 };
 
 /** Standard vector dimensionality for the hybrid retrieval engine */
@@ -61,15 +65,13 @@ export interface MemoryConfig {
   /** Enable detailed multi-stage console debugging logs (default: false, env: MEMORY_DEBUG) */
   debug?: boolean;
   /** 
-   * Switch de Telemetría Profunda Forense (default: false, env: MEMORY_TELEMETRY).
-   * Cuando se activa (true), registra de forma asíncrona y estructurada en un archivo JSONL
-   * toda la radiografía operativa: turnos en el Ring Buffer de RAM, decisión del Smart Gate,
-   * latencia y respuesta del Bibliotecario (Query Expander), stopwords removidas, scores y
-   * recuerdos recuperados, y veredictos del Portero/Notario. Permite auditorías a posteriori
-   * sin saturar la consola ni degradar la latencia de respuesta al usuario.
+   * Deep Forensic Telemetry Switch (default: false, env: MEMORY_TELEMETRY).
+   * When enabled (true), asynchronously logs structured operational diagnostics to a JSONL file:
+   * turns in the RAM Ring Buffer, Smart Gate decisions, Query Expander latency and output,
+   * retrieved memory scores, and Gatekeeper/Notary verdicts without degrading response latency.
    */
   telemetry?: boolean;
-  /** Ruta absoluta al archivo JSONL donde se depositará la telemetría (default: env MEMORY_TELEMETRY_PATH o ~/.local-ai-memory/telemetry.jsonl) */
+  /** Absolute or ~/ path to the JSONL telemetry file (default: env MEMORY_TELEMETRY_PATH or ~/.local-ai-memory/telemetry.jsonl) */
   telemetryPath?: string;
   /** Default source tag for facts inserted during this session (e.g. 'TOTALCONNECT', 'SQLITE_MEMORY') */
   defaultSource?: string;

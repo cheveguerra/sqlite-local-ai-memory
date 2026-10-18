@@ -68,7 +68,12 @@ export class MemoryEngine {
     this.telemetry = config.telemetry !== undefined
       ? config.telemetry
       : (process.env.MEMORY_TELEMETRY === "true" || process.env.TELEMETRY === "true");
-    this.telemetryPath = config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || defaultTelemetryPath;
+    const rawTelemetryPath = (config.telemetryPath || process.env.MEMORY_TELEMETRY_PATH || defaultTelemetryPath).trim();
+    this.telemetryPath = rawTelemetryPath === "~"
+      ? os.homedir()
+      : (rawTelemetryPath.startsWith("~/") || rawTelemetryPath.startsWith("~\\"))
+        ? path.join(os.homedir(), rawTelemetryPath.slice(2))
+        : rawTelemetryPath;
     this.store = new SqliteStore(config.dbPath);
     this.agents = new CognitiveAgents({ ...config, debug: this.debug }, this.store);
     if (this.telemetry) {
@@ -79,13 +84,13 @@ export class MemoryEngine {
         }
         this.telemetryStream = fs.createWriteStream(this.telemetryPath, { flags: "a" });
         this.telemetryStream.on("error", (err) => {
-          console.warn(`⚠️ [MEMORY:TELEMETRY] Stream error, disabling telemetry: ${err.message}`);
+          console.error(`⚠️ [MEMORY:TELEMETRY] Stream error, disabling telemetry: ${err.message}`);
           this.telemetry = false;
           this.telemetryStream = undefined;
         });
       } catch (err: any) {
         if (this.debug) {
-          console.warn(`⚠️ [MEMORY:TELEMETRY] Failed to initialize telemetry stream: ${err.message}`);
+          console.error(`⚠️ [MEMORY:TELEMETRY] Failed to initialize telemetry stream: ${err.message}`);
         }
       }
     }
@@ -106,7 +111,7 @@ export class MemoryEngine {
       this.telemetryStream.write(entry);
     } catch (err: any) {
       if (this.debug) {
-        console.warn(`⚠️ [MEMORY:TELEMETRY] Error writing telemetry record: ${err.message}`);
+        console.error(`⚠️ [MEMORY:TELEMETRY] Error writing telemetry record: ${err.message}`);
       }
     }
   }
@@ -208,7 +213,7 @@ export class MemoryEngine {
       queryVec = await this.agents.getEmbedding(effectiveQuery, opts?.signal);
     } catch (err: any) {
       if (err.name === "AbortError" || opts?.signal?.aborted) throw err;
-      console.warn("⚠️ [MemoryEngine] Embedding generation failed, degrading gracefully to FTS5 exact search:", err.message);
+      console.error("⚠️ [MemoryEngine] Embedding generation failed, degrading gracefully to FTS5 exact search:", err.message);
     }
 
     let vecHits: MemoryHit[] = [];

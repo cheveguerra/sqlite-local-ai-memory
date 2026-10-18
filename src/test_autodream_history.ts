@@ -8,6 +8,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { MemoryEngine } from "./MemoryEngine.js";
 
 async function testHistoryConsolidation() {
@@ -32,7 +33,7 @@ async function testHistoryConsolidation() {
     const defaultCandidates = [
       path.resolve("./fixtures/sample_chat_history.json"),
       path.resolve("../fixtures/sample_chat_history.json"),
-      path.join(path.dirname(new URL(import.meta.url).pathname), "../../fixtures/sample_chat_history.json"),
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "../../fixtures/sample_chat_history.json"),
     ];
 
     for (const cand of defaultCandidates) {

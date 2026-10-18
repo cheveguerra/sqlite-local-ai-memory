@@ -185,7 +185,7 @@ export class CognitiveAgents {
         this.genAI = new mod.GoogleGenerativeAI(this.config.geminiApiKey);
         return this.genAI;
       } catch (err: any) {
-        console.warn("⚠️ @google/generative-ai package not available. Falling back to local Ollama.");
+        console.error("⚠️ @google/generative-ai package not available. Falling back to local Ollama.");
       }
     }
     return null;
@@ -242,7 +242,7 @@ export class CognitiveAgents {
       endpoint?: string
     ): AgentModelConfig => {
       if (!target) {
-        console.warn(
+        console.error(
           `[sqlite-local-ai-memory] WARNING: Essential cognitive agent "${desc}" (${envVarName}) cannot be disabled. Falling back to default: ${defaultProvider}/${defaultModel}`
         );
         return {
@@ -309,7 +309,7 @@ export class CognitiveAgents {
     );
 
     if (!embedderTarget) {
-      console.warn(
+      console.error(
         `[sqlite-local-ai-memory] WARNING: Essential cognitive agent "Embedding Generator" (EMBEDDER_MODEL) cannot be disabled. Falling back to default: ollama/nomic-embed-text`
       );
     }
@@ -343,24 +343,26 @@ export class CognitiveAgents {
     const vecConfig = matrix.EMBEDDER;
     const endpoint = vecConfig.endpoint || `${this.getOllamaApiUrl()}/embed`;
 
-    // 1. Try local Ollama nomic-embed-text first
-    try {
-      const res = await axios.post(endpoint, {
-        model: vecConfig.model,
-        prompt: text,
-        input: text,
-      }, { timeout: 8000, signal });
-      const vec = res.data?.embedding || res.data?.embeddings?.[0] || [];
-      if (vec && Array.isArray(vec) && vec.length > 0) {
-        if (vec.length === EMBEDDING_DIM) {
-          return vec;
-        } else {
-          console.warn(`⚠️ [COGNITIVE] Ollama returned embedding of unexpected dimension: ${vec.length} (expected ${EMBEDDING_DIM})`);
+    // 1. Try local Ollama first if configured as primary embedder
+    if (vecConfig.provider === "ollama") {
+      try {
+        const res = await axios.post(endpoint, {
+          model: vecConfig.model,
+          prompt: text,
+          input: text,
+        }, { timeout: 8000, signal });
+        const vec = res.data?.embedding || res.data?.embeddings?.[0] || [];
+        if (vec && Array.isArray(vec) && vec.length > 0) {
+          if (vec.length === EMBEDDING_DIM) {
+            return vec;
+          } else {
+            console.error(`⚠️ [COGNITIVE] Ollama returned embedding of unexpected dimension: ${vec.length} (expected ${EMBEDDING_DIM})`);
+          }
         }
+      } catch (err: any) {
+        if (err.name === "AbortError" || signal?.aborted) throw err;
+        console.error("⚠️ [COGNITIVE] Ollama embedding attempt failed:", err.message);
       }
-    } catch (err: any) {
-      if (err.name === "AbortError" || signal?.aborted) throw err;
-      console.warn("⚠️ [COGNITIVE] Ollama embedding attempt failed:", err.message);
     }
 
     // 2. Fallback to Gemini Cloud gemini-embedding-001 (768 Matryoshka dimensions)
@@ -395,18 +397,18 @@ export class CognitiveAgents {
         const vec = res.embedding?.values || [];
         if (vec && vec.length >= EMBEDDING_DIM) return vec.slice(0, EMBEDDING_DIM);
         if (vec && vec.length > 0 && vec.length < EMBEDDING_DIM) {
-          console.warn(`⚠️ [COGNITIVE] Gemini returned embedding of unexpected dimension: ${vec.length} (expected ${EMBEDDING_DIM})`);
+          console.error(`⚠️ [COGNITIVE] Gemini returned embedding of unexpected dimension: ${vec.length} (expected ${EMBEDDING_DIM})`);
         }
       } catch (err: any) {
         if (err.name === "AbortError" || signal?.aborted) throw err;
-        console.warn("⚠️ [COGNITIVE] Gemini embedding generation failed:", err.message);
+        console.error("⚠️ [COGNITIVE] Gemini embedding generation failed:", err.message);
       } finally {
         clearTimeout(timeoutId);
         if (signal) signal.removeEventListener("abort", parentAbortHandler);
       }
     }
 
-    console.warn("⚠️ [COGNITIVE] Embedding generation failed across all providers.");
+    console.error("⚠️ [COGNITIVE] Embedding generation failed across all providers.");
     return [];
   }
 
@@ -452,7 +454,7 @@ export class CognitiveAgents {
           const genAI = await this.getGenAIClient();
           if (!genAI) {
             // FIX R3-1.6: log the reason so the operator can diagnose the failure.
-            console.warn(`⚠️ [COGNITIVE] Agent [${agentConfig.desc}]: Gemini configured but no API key/client available. Skipping provider.`);
+            console.error(`⚠️ [COGNITIVE] Agent [${agentConfig.desc}]: Gemini configured but no API key/client available. Skipping provider.`);
             continue;
           }
           const model = genAI.getGenerativeModel({
@@ -473,7 +475,7 @@ export class CognitiveAgents {
           const timeoutId = setTimeout(() => abortController.abort(new Error(`Gemini timeout after ${timeoutMs}ms`)), timeoutMs);
           const parentAbortHandler = () => abortController.abort();
 
-          // FIX-7: Verificar si la señal se abortó DURANTE el await de getGenAIClient()
+          // FIX-7: Check if signal was aborted while awaiting getGenAIClient()
           if (signal?.aborted) {
             clearTimeout(timeoutId);
             const abortErr = new Error("Execution aborted by signal");
@@ -506,9 +508,9 @@ export class CognitiveAgents {
             ? (this.config.openRouterApiKey || process.env.OPENROUTER_API_KEY)
             : (process.env.OPENAI_API_KEY || this.config.openRouterApiKey);
 
-          // FIX-5: no enviar request sin API key — patrón idéntico a la rama Gemini
+          // FIX-5: Do not send request without API key — matches Gemini branch behavior
           if (!apiKey) {
-            console.warn(`⚠️ [COGNITIVE] Agent [${agentConfig.desc}]: ${config.provider} configured but no API key available. Skipping provider.`);
+            console.error(`⚠️ [COGNITIVE] Agent [${agentConfig.desc}]: ${config.provider} configured but no API key available. Skipping provider.`);
             continue;
           }
 
@@ -542,7 +544,7 @@ export class CognitiveAgents {
         if (error.name === "AbortError" || signal?.aborted) {
           throw error;
         }
-        console.warn(`⚠️ Temporary fallback in Agent [${agentConfig.desc}] with provider [${config.provider}]:`, error.message);
+        console.error(`⚠️ Temporary fallback in Agent [${agentConfig.desc}] with provider [${config.provider}]:`, error.message);
       }
     }
     throw new Error(`All providers failed for ${agentConfig.desc}`);
@@ -719,7 +721,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
         score: h.score || 0,
       }));
     } else {
-      console.warn(`⚠️ [sqlite-local-ai-memory] Fact saved WITHOUT vector embedding (No active embedder). Precision degrades gracefully to FTS5 BM25 exact search mode until embedder is configured.`);
+      console.error(`⚠️ [sqlite-local-ai-memory] Fact saved WITHOUT vector embedding (No active embedder). Precision degrades gracefully to FTS5 BM25 exact search mode until embedder is configured.`);
     }
 
     const pointId = crypto.randomUUID();
@@ -757,7 +759,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
         }
       } catch (err: any) {
         if (err.name === "AbortError" || signal?.aborted) throw err;
-        console.warn("⚠️ [COGNITIVE] Semantic Arbiter failed, keeping existing facts:", err.message);
+        console.error("⚠️ [COGNITIVE] Semantic Arbiter failed, keeping existing facts:", err.message);
       }
     } else if (!this.config.semanticArbitrator && matches.length > 0 && matches[0].score > 0.95) {
       const ok = this.store.insertMemoryFact(matches[0].id, fact, userId, vector, source);
@@ -823,7 +825,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
       }
     } catch (err: any) {
       if (err.name === "AbortError" || signal?.aborted) throw err;
-      console.warn("⚠️ [COGNITIVE] Gatekeeper agent check failed, proceeding to notary:", err.message);
+      console.error("⚠️ [COGNITIVE] Gatekeeper agent check failed, proceeding to notary:", err.message);
     }
 
     const defaultNotary = `You are an Atomic Fact Compiler. Your output MUST be strict JSON: {"facts": [{"fact": "...", "category": "PERSONAL|TECHNICAL"}]}.
@@ -840,7 +842,7 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
       try {
         parsedJson = JSON.parse(extractJsonPayload(rawRes));
       } catch (parseErr: any) {
-        console.warn(`⚠️ [COGNITIVE] Notary returned invalid JSON (possible hallucination): ${parseErr.message}. Raw snippet: ${rawRes.slice(0, 120)}`);
+        console.error(`⚠️ [COGNITIVE] Notary returned invalid JSON (possible hallucination): ${parseErr.message}. Raw snippet: ${rawRes.slice(0, 120)}`);
         return;
       }
 
@@ -915,9 +917,8 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
       }
     }
 
-    // FIX-3: Persistir de inmediato el dashboard podado ANTES de intentar el LLM orquestador.
-    // Así, si el orquestador falla después, el archivado ya realizado no queda huérfano
-    // y el mismo caso nunca se re-archiva en el próximo ciclo.
+    // FIX-3: Immediately persist the pruned dashboard BEFORE calling the LLM orchestrator.
+    // If the orchestrator fails afterward, the archived cases are not orphaned or re-archived on the next cycle.
     if (prunedFactsCount > 0) {
       this.store.saveDashboardFact(JSON.stringify(activeDashboard), userId, []);
     }
@@ -1000,7 +1001,7 @@ Return strict JSON matching schema. Retain primary user's native language.`;
       try {
         data = JSON.parse(extractJsonPayload(rawRes));
       } catch (parseErr: any) {
-        console.warn(`⚠️ [COGNITIVE] State Orchestrator returned invalid JSON: ${parseErr.message}. Raw snippet: ${rawRes.slice(0, 120)}`);
+        console.error(`⚠️ [COGNITIVE] State Orchestrator returned invalid JSON: ${parseErr.message}. Raw snippet: ${rawRes.slice(0, 120)}`);
         throw parseErr; // escalate — this prevents silently wiping the dashboard
       }
 
@@ -1109,10 +1110,15 @@ Return strict JSON matching schema. Retain primary user's native language.`;
 
       // Deterministic Entity Anchor: Preserves hard operational coordinates (paths, IPs, ports, nodes, timestamps)
       // with zero compression loss across AutoDream consolidation cycles.
+      // Exclude previous [DETERMINISTIC_ANCHOR] items so stale entities expire naturally with their source items.
       const anchorSources = [
         ...newFacts.map((f: any) => f.data || ""),
-        ...activeDashboard.map((d: any) => d.txt || ""),
-        ...newDashboard.map((d: any) => d.txt || ""),
+        ...activeDashboard
+          .filter((d: any) => !d.txt?.startsWith("[DETERMINISTIC_ANCHOR]"))
+          .map((d: any) => d.txt || ""),
+        ...newDashboard
+          .filter((d: any) => !d.txt?.startsWith("[DETERMINISTIC_ANCHOR]"))
+          .map((d: any) => d.txt || ""),
         narrativeSummary,
       ];
       const anchor = extractDeterministicAnchor(anchorSources);
@@ -1130,12 +1136,9 @@ Return strict JSON matching schema. Retain primary user's native language.`;
         newDashboard.push(...cleanDashboard);
       }
 
-      const vectorText = newDashboard.map((d: any) => d.txt).join(". ") || narrativeSummary;
-      const vector = await this.getEmbedding(vectorText, signal);
-
-      this.store.saveDashboardFact(JSON.stringify(newDashboard), userId, vector);
-
-      // Consolidated Atomic Fact Ingestion (Batch triage items bypass Arbiter since Orchestrator already audited them)
+      // Consolidated Atomic Fact Ingestion BEFORE saving dashboard timestamp,
+      // so newly injected triage cards have created_at <= dashboard.updated_at
+      // and are not re-ingested as raw newFacts in the next consolidation cycle.
       for (const item of triageList) {
         if (signal?.aborted) throw new Error("AutoDream aborted by signal");
         if (item && item.fact) {
@@ -1145,6 +1148,11 @@ Return strict JSON matching schema. Retain primary user's native language.`;
           await this.injectUnifiedFact(finalFact, userId, [], signal, currentSource || "system", true);
         }
       }
+
+      const vectorText = newDashboard.map((d: any) => d.txt).join(". ") || narrativeSummary;
+      const vector = await this.getEmbedding(vectorText, signal);
+
+      this.store.saveDashboardFact(JSON.stringify(newDashboard), userId, vector);
 
       if (this.config.debug) {
         console.error(`\n🌙 [MEMORY:AUTODREAM]`);

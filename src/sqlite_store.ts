@@ -26,21 +26,31 @@ export class SqliteStore {
   private dbPath: string;
 
   constructor(targetPath?: string) {
-    this.dbPath = targetPath || this.resolveDatabasePath();
+    const rawPath = targetPath || process.env.SQLITE_MEM_PATH;
+    this.dbPath = this.resolveDatabasePath(rawPath);
     this.db = this.initDatabase(this.dbPath);
   }
 
-  private resolveDatabasePath(): string {
-    const envPath = process.env.SQLITE_MEM_PATH;
-    if (!envPath) return LOCAL_FALLBACK_PATH;
+  private expandHome(filepath: string): string {
+    const trimmed = filepath.trim();
+    if (trimmed === "~") return os.homedir();
+    if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
+      return path.join(os.homedir(), trimmed.slice(2));
+    }
+    return trimmed;
+  }
+
+  private resolveDatabasePath(customPath?: string): string {
+    if (!customPath) return LOCAL_FALLBACK_PATH;
+    const expandedPath = this.expandHome(customPath);
 
     try {
-      const dir = path.dirname(envPath);
+      const dir = path.dirname(expandedPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      return envPath;
+      return expandedPath;
     } catch (err: any) {
-      console.warn(
-        `⚠️ [SQLITE_STORE] SQLITE_MEM_PATH="${envPath}" unusable (${err.message}). ` +
+      console.error(
+        `⚠️ [SQLITE_STORE] Database path "${expandedPath}" unusable (${err.message}). ` +
         `Falling back to: ${LOCAL_FALLBACK_PATH}`
       );
       return LOCAL_FALLBACK_PATH;
@@ -64,7 +74,7 @@ export class SqliteStore {
         db.pragma(`journal_mode = ${journalMode}`);
       }
     } catch (err: any) {
-      console.warn("⚠️ [SQLITE_STORE] Could not verify/set journal_mode:", err.message);
+      console.error("⚠️ [SQLITE_STORE] Could not verify/set journal_mode:", err.message);
     }
     db.pragma("synchronous = NORMAL");
     if (journalMode === "WAL") {
@@ -73,7 +83,7 @@ export class SqliteStore {
       db.pragma("mmap_size = 0");
       if (journalMode !== "TRUNCATE") {
         // TRUNCATE is the intentional default — only warn for unexpected modes.
-        console.warn(
+        console.error(
           `⚠️ [SQLITE_STORE] journal_mode=${journalMode} + synchronous=NORMAL: ` +
           `mmap disabled. For local SSD/NVMe use SQLITE_JOURNAL_MODE=WAL.`
         );
@@ -91,12 +101,13 @@ export class SqliteStore {
       );
 
       CREATE TABLE IF NOT EXISTS recuerdos_vectores (
-        point_id TEXT PRIMARY KEY,
+        point_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         data TEXT NOT NULL,
         source TEXT DEFAULT 'system',
         created_at TEXT NOT NULL,
-        vector_blob BLOB
+        vector_blob BLOB,
+        PRIMARY KEY (point_id, user_id)
       );
 
       CREATE INDEX IF NOT EXISTS idx_recuerdos_user_id ON recuerdos_vectores (user_id);
@@ -173,15 +184,13 @@ export class SqliteStore {
 
       let rows: any[];
       if (userId) {
-        const users = userId === 'general' ? ['general'] : [userId, 'general'];
-        const placeholders = users.map(() => '?').join(', ');
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, rank
           FROM recuerdos_fts
-          WHERE recuerdos_fts MATCH ? AND user_id IN (${placeholders})
+          WHERE recuerdos_fts MATCH ? AND user_id = ?
           ORDER BY rank LIMIT ?
         `);
-        rows = stmt.all(ftsQuery, ...users, limit);
+        rows = stmt.all(ftsQuery, userId, limit);
       } else {
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, rank
@@ -211,30 +220,33 @@ export class SqliteStore {
     try {
       let rows: any[];
       if (userId) {
-        const users = userId === 'general' ? ['general'] : [userId, 'general'];
-        const placeholders = users.map(() => '?').join(', ');
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, vector_blob
           FROM recuerdos_vectores
-          WHERE vector_blob IS NOT NULL AND user_id IN (${placeholders})
+          WHERE vector_blob IS NOT NULL
+            AND point_id != ?
+            AND source != 'inactive'
+            AND user_id = ?
           ORDER BY created_at DESC
           LIMIT 5000
         `);
-        rows = stmt.all(...users);
+        rows = stmt.all(DASHBOARD_UUID, userId);
         if (rows.length >= 5000) {
-          console.warn(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit for users [${users.join(', ')}]. Consider enabling ANN indexing for better scalability.`);
+          console.error(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit for user [${userId}]. Consider enabling ANN indexing for better scalability.`);
         }
       } else {
         const stmt = this.db.prepare(`
           SELECT point_id as id, user_id, data, source, created_at, vector_blob
           FROM recuerdos_vectores
           WHERE vector_blob IS NOT NULL
+            AND point_id != ?
+            AND source != 'inactive'
           ORDER BY created_at DESC
           LIMIT 5000
         `);
-        rows = stmt.all();
+        rows = stmt.all(DASHBOARD_UUID);
         if (rows.length >= 5000) {
-          console.warn(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit. Consider enabling ANN indexing for better scalability.`);
+          console.error(`⚠️ [SQLITE_STORE] Vector scan hit the 5000-row safety limit. Consider enabling ANN indexing for better scalability.`);
         }
       }
 
@@ -265,20 +277,14 @@ export class SqliteStore {
   public insertMemoryFact(
     id: string,
     data: string,
-    userId: string = "cheve",
+    userId: string = "user_default",
     vector?: number[],
     source: string = "system"
   ): boolean {
     try {
       const now = new Date().toISOString();
       const vectorBlob = vector && vector.length === EMBEDDING_DIM ? this.quantizeVectorInt8(vector) : null;
-
-      const targetUser = (
-        data.startsWith('[FAMILIA]') || data.startsWith('[DOCUMENTOS]') || data.startsWith('[DESARROLLO]') ||
-        data.startsWith('[SISTEMA]') || data.startsWith('[INFRAESTRUCTURA]') || data.startsWith('[SERVICIOS_HOGAR]') ||
-        data.startsWith('[CFE]') || data.startsWith('[COMPRAS]') || data.startsWith('[ARQUITECTURA]') ||
-        data.startsWith('[BUGFIX]') || data.startsWith('[HALLAZGO]') || data.startsWith('[CONFIG]')
-      ) ? 'general' : (userId || 'cheve');
+      const targetUser = userId || "user_default";
 
       const deleteFts = this.db.prepare(`DELETE FROM recuerdos_fts WHERE point_id = ?`);
 
@@ -306,6 +312,7 @@ export class SqliteStore {
   }
 
   public deactivateMemoryFact(id: string): boolean {
+    if (id === DASHBOARD_UUID) return false;
     try {
       const deleteFts = this.db.prepare("DELETE FROM recuerdos_fts WHERE point_id = ?");
       const updateVec = this.db.prepare("UPDATE recuerdos_vectores SET vector_blob = NULL, source = 'inactive' WHERE point_id = ?");

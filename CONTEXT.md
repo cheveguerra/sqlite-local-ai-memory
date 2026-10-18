@@ -1,15 +1,15 @@
 # Contexto del Proyecto: sqlite-local-ai-memory
 
 ## 1. Estado y Versión
-- **Versión:** 1.4.2 (Hardening de Auditoría Multi-Modelo: Protección de agentes esenciales, LRU en Ring Buffer, Stream de Telemetría, Saneamiento de Tags y Consistencia MCP)
+- **Versión:** 1.4.3 (Aislamiento Multi-Usuario del Pizarrón, Ancla de Entidades Determinista, Expansión `~` en Rutas y Blindaje `stderr` MCP)
 - **Foco Activo:** Motor de memoria atómica local con salida dual AutoDream, Incubadora de casos abiertos y RAG Híbrido (FTS5 BM25 + Vectores Int8).
 - **Naturaleza:** Biblioteca Node.js / TypeScript y Servidor MCP desacoplado 100% en inglés técnico.
 
 ## 2. Mapa de Componentes y Módulos
-- **`MemoryEngine.ts`:** Fachada principal exportable (`save`, `saveFact`, `search`, `getDashboard`, `consolidate`, `contextualizeQuery`).
+- **`MemoryEngine.ts`:** Fachada principal exportable (`save`, `saveFact`, `search`, `getDashboard`, `consolidate`, `addTurn`, `contextualizeQuery`).
 - **`sqlite_store.ts`:** Motor SQLite bare-metal (TRUNCATE por defecto para discos de red/NFS/nube; WAL + mmap 256MB opcional en local vía `SQLITE_JOURNAL_MODE=WAL`). FTS5 BM25 + similitud coseno Int8 cuantizada en memoria.
 - **`cognitive_agents.ts`:** Matriz de agentes de IA (`GATEKEEPER`, `QUERY_EXPANDER`, `NOTARY`, `STATE_ORCHESTRATOR`, `SEMANTIC_ARBITER`, `EMBEDDER`) con AutoDream dual y fallback multi-proveedor (Ollama / Gemini).
-- **`mcp_server.ts`:** Servidor MCP estándar (Stdio) con herramientas `save_fact`, `search_memory`, `get_current_state` y esquemas Zod.
+- **`mcp_server.ts`:** Servidor MCP estándar (Stdio) con herramientas `save_fact`, `search_memory`, `get_current_state`, `consolidate` y esquemas Zod.
 - **`types.ts`:** Tipos e interfaces públicas (`MemoryConfig`, `AutoDreamResult`, `TriageItem`, `OpenCaseItem`, `MemoryHit`).
 - **`stress_test.ts` / `multi_env_mcp_test.ts` / `test_autodream_dual.ts`:** Suite de pruebas de integración y estrés.
 
@@ -17,7 +17,7 @@
 - **Almacenamiento:** SQLite local (`memoria.db`).
 - **Tablas:**
   - `recuerdos_fts`: Tabla virtual FTS5 (`point_id`, `user_id`, `data`, `source`, `created_at`).
-  - `recuerdos_vectores`: Tabla relacional con BLOB cuantizado Int8 (`point_id`, `user_id`, `data`, `source`, `created_at`, `vector_blob`).
+  - `recuerdos_vectores`: Tabla relacional con BLOB cuantizado Int8 (`point_id`, `user_id`, `data`, `source`, `created_at`, `vector_blob`, `PRIMARY KEY (point_id, user_id)`).
 - **Pizarrón (Estado Consolidado):** UUID especial `00000000-0000-0000-0000-000000000000`.
 - **Requerimientos BD para Dimensión Configurable (ej. OpenAI 1536 dims / 384 / 1024):**
   * El schema actual (`BLOB` en `recuerdos_vectores`) ya es agnóstico en tamaño binario (almacena 768 bytes para 768d, 1536 bytes para 1536d en Int8).
@@ -35,7 +35,7 @@
 
 - **Enrutamiento Universal de Modelos (`PROVIDER/MODEL`):** Soporte agnóstico para prefijos `gemini/...`, `ollama/...`, `openai/...` y `openrouter/...` desacoplado de heurísticas de nombres.
 - **Bypass Opcional en Query Expander:** `EXPANDER_MODEL` admite `none` o vacío para desactivar el agente, ejecutando búsquedas literales en 0 ms sin costo de API ni riesgo de envenenamiento léxico en FTS5.
-- **Protección de Agentes Esenciales:** `GATEKEEPER`, `NOTARY`, `STATE_ORCHESTRATOR` y `SEMANTIC_ARBITER` son indispensables. Si se configuran con `off`/`none`/`disabled`, el sistema emite `console.warn` explicativo y aplica fallback defensivo a los modelos por defecto.
+- **Protección de Agentes Esenciales:** `GATEKEEPER`, `NOTARY`, `STATE_ORCHESTRATOR` y `SEMANTIC_ARBITER` son indispensables. Si se configuran con `off`/`none`/`disabled`, el sistema emite `console.error` explicativo y aplica fallback defensivo a los modelos por defecto.
 - **Plantilla `.env.example`:** Documentación completa de variables, endpoints y modelos recomendados.
 - **Invariante de Espacio Vectorial Único:** Una base de datos `memoria.db` solo puede contener vectores pertenecientes al mismo modelo y dimensión; nunca mezclar embeddings de proveedores o dimensiones distintas en el cálculo de similitud coseno.
 
@@ -72,6 +72,10 @@
 - [x] (v1.4.2) Guarda anti-inyección (`ANTI_INJECTION_GUARD`) integrada en el prompt de sistema del Query Expander (FIX-5).
 - [x] (v1.4.2) Sanitización de tags en `source` a nivel de librería (`injectUnifiedFact` y `saveMemory`) para robustecer el guardrail determinista (FIX-6).
 - [x] (v1.4.2) Compilación y certificación de build limpio de TypeScript (`npm run build`).
+- [x] (v1.4.3) Clave primaria compuesta `(point_id, user_id)` y aislamiento de `DASHBOARD_UUID` en búsquedas y desactivación.
+- [x] (v1.4.3) Eliminación de defaults personales y prevención de re-ingestión de tarjetas de triaje y anclas deterministas en `runAutoDream`.
+- [x] (v1.4.3) Expansión de `~` (tilde) en rutas `SQLITE_MEM_PATH`, `dbPath` y `telemetryPath` para prevenir errores de Cold Start en clientes MCP.
+- [x] (v1.4.3) Unificación total de avisos a `console.error` para blindar el canal `stdio` JSON-RPC y documentación de `saveFact`/`addTurn` en `README.md`.
 - [ ] (Roadmap v1.5.0) Desacoplar constante rígida `EMBEDDING_DIM = 768` para soportar modelos Cloud de 1536 dimensiones (OpenAI text-embedding-3-small) y modelos ligeros de 384/1024 dims.
 - [ ] (Roadmap v1.5.0) Implementar tabla `memory_settings` en SQLite para persistir y validar dimensión/modelo activo con auto-migración/re-indexado.
 

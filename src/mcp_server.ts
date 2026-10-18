@@ -26,7 +26,7 @@ const memory = new MemoryEngine({
 
 const server = new McpServer({
   name: "sqlite-local-ai-memory",
-  version: "1.4.2",
+  version: "1.4.3",
 });
 
 function safeErrorMessage(error: any, fallbackContext: string): string {
@@ -54,14 +54,15 @@ server.tool(
   "Stores a new fact, preference, or technical knowledge directly in memory.",
   {
     fact: z.string().min(3, "Fact is too short to save.").max(2000).describe("The fact or information to save."),
+    userId: z.string().optional().describe("Optional user ID to scope the memory fact."),
     source: SOURCE_TAG.describe("Source or project tag, e.g. 'TOTALCONNECT', 'SQLITE_MEMORY' (optional, alphanumeric only)."),
   },
-  async ({ fact, source }, { signal }) => {
+  async ({ fact, userId, source }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      await memory.saveFact(fact, undefined, { signal, source });
+      await memory.saveFact(fact, userId, { signal, source });
       return {
         content: [
           {
@@ -97,14 +98,15 @@ server.tool(
   {
     query: z.string().min(1, "Search query cannot be empty.").describe("Search terms or topic to recall."),
     limit: z.number().int().min(1).max(20).optional().default(5).describe("Maximum number of results to return (default: 5, max: 20)."),
+    userId: z.string().optional().describe("Optional user ID to scope the search."),
     history: z.string().max(4000).optional().describe("Optional recent conversation history (e.g. 'U: hi\\nA: hello\\nU: what was that thing?'). When provided, the Query Expander uses it to resolve ambiguous references."),
   },
-  async ({ query, limit, history }, { signal }) => {
+  async ({ query, limit, userId, history }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      const hits = await memory.search(query, limit, undefined, { signal, history });
+      const hits = await memory.search(query, limit, userId, { signal, history });
 
       if (hits.length === 0) {
         return {
@@ -153,13 +155,15 @@ server.tool(
 server.tool(
   "get_current_state",
   "Retrieves the active, current working state summary (Dashboard).",
-  {},
-  async (_, { signal }) => {
+  {
+    userId: z.string().optional().describe("Optional user ID to read the dashboard for."),
+  },
+  async ({ userId }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      const dash = memory.getDashboard();
+      const dash = memory.getDashboard(userId);
       return {
         content: [
           {

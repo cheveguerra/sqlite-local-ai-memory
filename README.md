@@ -160,11 +160,17 @@ See [`.env.example`](.env.example) for a ready-to-use configuration template.
 
 ## 🔌 Programmatic API Reference
 
-### 🟢 `memory.search(query, limit?, userId?)`
-Executes parallel FTS5 BM25 + Int8 Vector search. Returns `MemoryHit[]` containing `data` (canonical fact string), `score`, `source`, and `created_at`.
+### 🟢 `memory.search(query, limit?, userId?, opts?)`
+Executes parallel FTS5 BM25 + Int8 Vector search. Returns `MemoryHit[]` containing `data` (canonical fact string), `score`, `source`, and `created_at`. Accepts `{ signal?: AbortSignal, history?: string }` in `opts`.
 
-### 🟢 `memory.save(text, userId?)`
-Ingests user input through the 2-Layer Noise Firewall, Notary Fact Extractor, and Real-Time Semantic Arbiter.
+### 🟢 `memory.save(text, userId?, opts?)`
+Ingests raw user input or dialogue through the 2-Layer Noise Firewall, Notary Fact Extractor, and Real-Time Semantic Arbiter. Accepts `{ signal?: AbortSignal, source?: string }` in `opts`.
+
+### 🟢 `memory.saveFact(fact, userId?, opts?)`
+Saves a pre-formatted atomic fact directly into SQLite (bypassing Gatekeeper and Notary) while still running the Semantic Arbiter to resolve state collisions. Accepts `{ signal?: AbortSignal, source?: string }` in `opts`.
+
+### 🟢 `memory.addTurn(role, text, userId?)`
+Pushes a `"user"` or `"assistant"` turn into the ephemeral RAM ring buffer (max 10 turns per user) so subsequent `memory.search()` calls automatically activate the Smart Gate Query Expander for pronoun and context disambiguation.
 
 ### 🟢 `memory.getDashboard(userId?)` -> `{ data: string; memory?: string; updated_at: string } | null`
 Instantaneous, zero-cost read of the persistent consolidated dashboard from SQLite (UUID `00000000-0000-0000-0000-000000000000`).
