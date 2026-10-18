@@ -17,6 +17,8 @@
   "files": [
     "dist",
     "README.md",
+    "BENCHMARKS.md",
+    ".env.example",
     "LICENSE"
   ],
   "scripts": {
@@ -30,14 +32,30 @@
   "keywords": [
     "mcp",
     "mcp-server",
+    "model-context-protocol",
     "sqlite",
+    "fts5",
     "memory",
     "rag",
     "vector-search",
+    "hybrid-search",
+    "local-first",
     "llm",
     "claude",
     "anthropic"
   ],
+  "author": "Jose Alberto Guerra (cheveguerra)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cheveguerra/sqlite-local-ai-memory.git"
+  },
+  "homepage": "https://github.com/cheveguerra/sqlite-local-ai-memory#readme",
+  "bugs": {
+    "url": "https://github.com/cheveguerra/sqlite-local-ai-memory/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "license": "MIT",
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

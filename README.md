@@ -84,6 +84,10 @@ Battle-tested in a 24/7 production autonomous WhatsApp assistant and engineering
 
 ## 💻 Quick Example (SDK)
 
+```bash
+npm install sqlite-local-ai-memory
+```
+
 ```typescript
 import { MemoryEngine } from "sqlite-local-ai-memory";
 
