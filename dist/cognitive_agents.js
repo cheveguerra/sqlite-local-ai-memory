@@ -488,7 +488,7 @@ export class CognitiveAgents {
                 console.error(`⚠️ Temporary fallback in Agent [${agentConfig.desc}] with provider [${config.provider}]:`, error.message);
             }
         }
-        throw new Error(`All providers failed for ${agentConfig.desc}`);
+        throw new Error(`All providers failed for ${agentConfig.desc}. Please ensure Ollama is running at http://localhost:11434 with model ${agentConfig.model} or configure GEMINI_API_KEY.`);
     }
     getResponseSchema(key) {
         switch (key) {
@@ -637,7 +637,8 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
         source = this.sanitizeTag(source, "system").toLowerCase();
         const vector = await this.getEmbedding(fact, signal);
         let matches = [];
-        if (vector.length === EMBEDDING_DIM) {
+        const hasVector = vector.length === EMBEDDING_DIM;
+        if (hasVector) {
             const rawHits = this.store.searchVectorInt8(vector, 3, userId);
             matches = rawHits.map((h) => ({
                 id: h.id,
@@ -656,7 +657,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
             if (!ok) {
                 throw new Error(`Failed to update existing fact in SQLite: "${fact.slice(0, 50)}..."`);
             }
-            return;
+            return { degraded: !hasVector };
         }
         const pointId = crypto.randomUUID();
         protectedIds.push(pointId);
@@ -709,6 +710,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
                 throw new Error(`Failed to insert fact in SQLite: "${fact.slice(0, 50)}..."`);
             }
         }
+        return { degraded: !hasVector };
     }
     /**
      * Processes raw text or conversational turns through the cognitive pipeline:
@@ -789,6 +791,9 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
             if (e.name === "AbortError" || signal?.aborted)
                 throw e;
             console.error("❌ [COGNITIVE] Error in Notary Agent:", e.message);
+            console.warn("⚠️ [COGNITIVE] Falling back to RAW text ingestion. Memory saved to FTS5 without atomic distillation or vector embeddings. Precision is degraded to BM25 text match until an LLM/Embedder is configured (Ollama at http://localhost:11434 or GEMINI_API_KEY).");
+            const rawCleanText = messageMatch ? messageMatch[1].trim() : text.trim();
+            await this.injectUnifiedFact(`[RAW] ${rawCleanText}`, userId, [], signal, source, true);
         }
     }
     /**

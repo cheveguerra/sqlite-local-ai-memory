@@ -52,7 +52,9 @@ export declare class CognitiveAgents {
      * @param signal - Optional AbortSignal.
      * @param source - Project or origin identifier (e.g. 'TOTALCONNECT', 'system').
      */
-    injectUnifiedFact(fact: string, userId?: string, protectedIds?: string[], signal?: AbortSignal, source?: string, skipArbiter?: boolean): Promise<void>;
+    injectUnifiedFact(fact: string, userId?: string, protectedIds?: string[], signal?: AbortSignal, source?: string, skipArbiter?: boolean): Promise<{
+        degraded: boolean;
+    }>;
     /**
      * Processes raw text or conversational turns through the cognitive pipeline:
      * Layer 1: Regex chatter filtering.

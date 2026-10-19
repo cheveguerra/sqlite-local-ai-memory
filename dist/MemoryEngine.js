@@ -139,7 +139,7 @@ export class MemoryEngine {
      */
     async saveFact(fact, userId = this.userId, opts) {
         return this.writeMutex.run(userId, async () => {
-            await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
+            const res = await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
             if (this.telemetry) {
                 this.recordTelemetry({
                     event: "SAVE_FACT",
@@ -148,6 +148,7 @@ export class MemoryEngine {
                     fact,
                 });
             }
+            return res;
         });
     }
     /**

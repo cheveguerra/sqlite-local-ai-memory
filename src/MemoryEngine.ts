@@ -154,9 +154,9 @@ export class MemoryEngine {
     fact: string,
     userId: string = this.userId,
     opts?: { signal?: AbortSignal; source?: string }
-  ): Promise<void> {
+  ): Promise<{ degraded: boolean }> {
     return this.writeMutex.run(userId, async () => {
-      await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
+      const res = await this.agents.injectUnifiedFact(fact, userId, [], opts?.signal, opts?.source);
       if (this.telemetry) {
         this.recordTelemetry({
           event: "SAVE_FACT",
@@ -165,6 +165,7 @@ export class MemoryEngine {
           fact,
         });
       }
+      return res;
     });
   }
 

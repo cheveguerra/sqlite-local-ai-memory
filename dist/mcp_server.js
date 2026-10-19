@@ -53,12 +53,15 @@ server.tool("save_fact", "Stores a new fact, preference, or technical knowledge 
         if (signal?.aborted) {
             throw new Error("Request aborted by MCP client");
         }
-        await memory.saveFact(fact, userId, { signal, source });
+        const res = await memory.saveFact(fact, userId, { signal, source });
+        const warningText = res?.degraded
+            ? `\n\n⚠️ WARNING: No active LLM/Embedding provider configured or reachable (Ollama at http://localhost:11434 or GEMINI_API_KEY). Fact saved in RAW text mode and indexed in SQLite FTS5 BM25. Semantic precision is severely degraded until an embedding model is configured.`
+            : "";
         return {
             content: [
                 {
                     type: "text",
-                    text: `✅ Fact successfully saved to memory: "${fact}"`,
+                    text: `✅ Fact successfully saved to memory: "${fact}"${warningText}`,
                 },
             ],
         };

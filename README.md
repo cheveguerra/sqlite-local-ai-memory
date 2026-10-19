@@ -55,6 +55,14 @@ Unlike basic vector wrappers or chat buffer memory systems, this architecture in
 
 6. **🔎 Dual Parallel Hybrid RAG**:  
    Executes exact **SQLite FTS5 BM25** (keyword/IP matching in `< 0.5 ms`) and **Int8 Scalar Quantized Vector Search** (`nomic-embed-text`) in parallel with reciprocal rank scoring.
+7. **🛡️ Graceful Zero-LLM Degradation (Zero-Config / Offline Fallback)**:  
+   If no API keys are provided and Ollama is not running, the module does not crash or hang. It gracefully degrades to bare-metal mode:
+   - **`save_fact` / `save`**: Ingests raw facts directly into SQLite without semantic entity extraction.
+   - **`search_memory`**: Automatically falls back to full-text SQLite FTS5 BM25 keyword search without computing vector embeddings.
+   - **`get_current_state`**: Retrieves the stored SQLite blackboard state instantly.
+
+   > [!NOTE]  
+   > **Degradation Notice:** While the system operates 100% autonomously and reliably without any LLM, **this zero-LLM fallback mode is not ideal**. The core value and intelligence of this architecture stem from LLM-powered cognitive role triage, semantic vector embeddings (hybrid RAG search), active blackboard tracking, and the automated memory consolidation cycle (`consolidate` / AutoDream).
 
 ---
 
@@ -77,13 +85,32 @@ Add to your `claude_desktop_config.json`, `mcp_config.json`, or Cursor MCP setti
       "args": ["-y", "sqlite-local-ai-memory"],
       "env": {
         "SQLITE_MEM_PATH": "~/.local-ai-memory/memoria.db",
-        "GEMINI_API_KEY": "your-api-key"
+        "GEMINI_API_KEY": "your-api-key",
+        "MEMORY_USER_NAME": "YourName"
       }
     }
   }
 }
 ```
 *Exposes 4 native MCP tools: `save_fact`, `search_memory`, `get_current_state`, and `consolidate`.*
+
+#### MCP & Standalone Environment Variables
+
+| Variable | Type / Default | Description |
+| :--- | :--- | :--- |
+| `SQLITE_MEM_PATH` | `~/.local-ai-memory/memoria.db` | Absolute or relative path to the SQLite database file. |
+| `MEMORY_USER_NAME` / `USER_NAME` | *(Optional)* | Primary user name used by the Deterministic Entity Anchor (`@User`) for personal attribution. |
+| `MEMORY_USER_ID` | `user_default` | User partition / tenant ID for multi-agent or multi-tenant scoping. |
+| `MEMORY_TELEMETRY` | `false` (`true` / `1`) | Enables structured JSONL telemetry logging (query routing, latency, smart gate triage). |
+| `MEMORY_TELEMETRY_PATH` | `~/.local-ai-memory/telemetry.jsonl` | File destination for the JSONL telemetry log output. |
+| `MEMORY_DEBUG` | `false` (`true` / `1`) | Enables verbose colored diagnostic logs on `stderr`. |
+| `GEMINI_API_KEY` | *(Optional)* | Google Gemini API Key. |
+| `OPENAI_API_KEY` | *(Optional)* | OpenAI API Key. |
+| `OPENROUTER_API_KEY` | *(Optional)* | OpenRouter API Key. |
+| `OPENAI_BASE_URL` | *(Optional)* | Custom base URL for OpenAI-compatible proxies (e.g., vLLM, LiteLLM). |
+| `OLLAMA_API_URL` | `http://localhost:11434` | Ollama base URL (auto-detects Docker host bridge `http://172.17.0.1:11434`). |
+| `OLLAMA_CHAT_ENDPOINT` | `/api/chat` | Custom chat endpoint when Ollama is behind reverse proxies. |
+| `OLLAMA_EMBED_ENDPOINT` | `/api/embeddings` | Custom embedding endpoint when Ollama is behind reverse proxies. |
 
 ---
 
@@ -148,6 +175,11 @@ The engine divides memory management into specialized roles so you can run cheap
                              ▼
 4. AUTODREAM ────────► Multi-hour synthesis & open issues ───► Requires Context + Complex Schemas
 ```
+
+> [!TIP]
+> **Google AI Studio Model Compatibility:**  
+> By default, cognitive roles point to `gemini/gemini-2.5-flash-lite`. If your Google AI API key was generated recently and the API returns `404 / Model not found` for the 2.5 series, configure an override to the current model available on your account:  
+> `NOTARY_MODEL=gemini/gemini-3.5-flash-lite` (or set the respective role environment variables).
 
 ### Role Breakdown
 

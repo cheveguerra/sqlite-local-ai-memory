@@ -42,7 +42,9 @@ export declare class MemoryEngine {
     saveFact(fact: string, userId?: string, opts?: {
         signal?: AbortSignal;
         source?: string;
-    }): Promise<void>;
+    }): Promise<{
+        degraded: boolean;
+    }>;
     /**
      * Dual Parallel Hybrid RAG Search (FTS5 BM25 + Int8 Scalar Quantized Cosine Similarity).
      * Automatically invokes QUERY_EXPANDER via Smart Gate when conversational context is present.
