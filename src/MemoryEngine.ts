@@ -7,7 +7,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import os from "os";
-import { type MemoryConfig, type MemoryHit, type AutoDreamResult, EMBEDDING_DIM } from "./types.js";
+import { type MemoryConfig, type MemoryHit, type FactLineageNode, type AutoDreamResult, EMBEDDING_DIM } from "./types.js";
 import { SqliteStore } from "./sqlite_store.js";
 import { CognitiveAgents } from "./cognitive_agents.js";
 
@@ -177,7 +177,7 @@ export class MemoryEngine {
     query: string,
     limit: number = 5,
     userId: string = this.userId,
-    opts?: { signal?: AbortSignal; history?: string }
+    opts?: { signal?: AbortSignal; history?: string; asOf?: string }
   ): Promise<MemoryHit[]> {
     const searchStartTime = Date.now();
     // --- SMART GATE: Activate QUERY_EXPANDER only when conversational context exists ---
@@ -207,7 +207,7 @@ export class MemoryEngine {
       }
     }
 
-    const ftsHits = this.store.searchFTS5(effectiveQuery, limit * 2, userId);
+    const ftsHits = this.store.searchFTS5(effectiveQuery, limit * 2, userId, opts?.asOf);
     let queryVec: number[] = [];
 
     try {
@@ -219,7 +219,7 @@ export class MemoryEngine {
 
     let vecHits: MemoryHit[] = [];
     if (queryVec.length === EMBEDDING_DIM) {
-      vecHits = this.store.searchVectorInt8(queryVec, limit * 2, userId);
+      vecHits = this.store.searchVectorInt8(queryVec, limit * 2, userId, opts?.asOf);
       // FIX R2-2: pass `undefined` (not opts?.signal) so backfill survives
       // even if the MCP client cancels the originating search request.
       if (!this.backfillInFlight.has(userId)) {
@@ -388,6 +388,13 @@ export class MemoryEngine {
    */
   public async contextualizeQuery(query: string, shortHistory: string): Promise<string> {
     return await this.agents.contextualizeQuery(query, shortHistory);
+  }
+
+  /**
+   * Retrieves the evolutionary Point-in-Time history and replacement lineage of a fact.
+   */
+  public getFactLineage(pointId: string): FactLineageNode[] {
+    return this.store.getFactLineage(pointId);
   }
 
   /**

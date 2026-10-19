@@ -26,7 +26,7 @@ const memory = new MemoryEngine({
 
 const server = new McpServer({
   name: "sqlite-local-ai-memory",
-  version: "1.4.6",
+  version: "1.5.0",
 });
 
 function safeErrorMessage(error: any, fallbackContext: string): string {
@@ -103,34 +103,38 @@ server.tool(
     limit: z.number().int().min(1).max(20).optional().default(5).describe("Maximum number of results to return (default: 5, max: 20)."),
     userId: z.string().optional().describe("Optional user ID to scope the search."),
     history: z.string().max(4000).optional().describe("Optional recent conversation history (e.g. 'U: hi\\nA: hello\\nU: what was that thing?'). When provided, the Query Expander uses it to resolve ambiguous references."),
+    as_of: z.string().optional().describe("Optional ISO timestamp (e.g. '2026-10-01T00:00:00Z') or date ('2026-10-01') for Point-in-Time retrospective queries. Returns facts as they existed at that exact moment in time."),
   },
-  async ({ query, limit, userId, history }, { signal }) => {
+  async ({ query, limit, userId, history, as_of }, { signal }) => {
     try {
       if (signal?.aborted) {
         throw new Error("Request aborted by MCP client");
       }
-      const hits = await memory.search(query, limit, userId, { signal, history });
+      const hits = await memory.search(query, limit, userId, { signal, history, asOf: as_of });
 
       if (hits.length === 0) {
         return {
           content: [
             {
               type: "text",
-              text: `No relevant memories found for: "${query}"`,
+              text: `No relevant memories found for: "${query}"${as_of ? ` (as of ${as_of})` : ""}`,
             },
           ],
         };
       }
 
       const formatted = hits
-        .map((h, i) => `[${i + 1}] (Score: ${(h.score ?? 0).toFixed(2)}) ${h.data}`)
+        .map((h, i) => {
+          const temporal = h.valid_to ? ` [Superado el ${h.valid_to}]` : "";
+          return `[${i + 1}] (Score: ${(h.score ?? 0).toFixed(2)})${temporal} ${h.data}`;
+        })
         .join("\n");
 
       return {
         content: [
           {
             type: "text",
-            text: `🔎 Relevant memories found for "${query}":\n\n${formatted}`,
+            text: `🔎 Relevant memories found for "${query}"${as_of ? ` (as of ${as_of})` : ""}:\n\n${formatted}`,
           },
         ],
       };
@@ -146,6 +150,57 @@ server.tool(
           {
             type: "text",
             text: `❌ Error searching memory: ${safeErrorMessage(error, "search_memory")}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_fact_lineage (Point-in-Time evolutionary history)
+// ---------------------------------------------------------------------------
+server.tool(
+  "get_fact_lineage",
+  "Inspect the evolutionary history and Point-in-Time lineage of a memory fact. Returns previous superseded versions and future replacements.",
+  {
+    point_id: z.string().describe("UUID of the memory fact to trace"),
+  },
+  async ({ point_id }, { signal }) => {
+    try {
+      if (signal?.aborted) {
+        throw new Error("Request aborted by MCP client");
+      }
+      const lineage = memory.getFactLineage(point_id);
+      if (lineage.length === 0) {
+        return {
+          content: [{ type: "text", text: `Fact ${point_id} not found.` }],
+        };
+      }
+      const formatted = lineage
+        .map((node, i) => {
+          const status = node.valid_to ? `[SUPERSEDED on ${node.valid_to}]` : "[ACTIVE / CURRENT]";
+          const reason = node.supersede_reason ? ` (Reason: ${node.supersede_reason})` : "";
+          return `Step ${i + 1}: ${status}${reason}\n  ID: ${node.id}\n  Fact: "${node.data}"\n  Valid: ${node.valid_from || node.created_at} -> ${node.valid_to || "present"}`;
+        })
+        .join("\n\n");
+
+      return {
+        content: [{ type: "text", text: `📜 Fact Lineage for ${point_id}:\n\n${formatted}` }],
+      };
+    } catch (error: any) {
+      if (error.name === "AbortError" || signal?.aborted) {
+        return {
+          content: [{ type: "text", text: "⏹️ Operation aborted by MCP client." }],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error tracing fact lineage: ${safeErrorMessage(error, "get_fact_lineage")}`,
           },
         ],
         isError: true,

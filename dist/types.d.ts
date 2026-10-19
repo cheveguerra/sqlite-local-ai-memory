@@ -73,6 +73,21 @@ export interface MemoryHit {
     score?: number;
     rank?: number;
     memory?: string;
+    valid_from?: string;
+    valid_to?: string | null;
+    superseded_by?: string | null;
+    supersede_reason?: string | null;
+}
+export interface FactLineageNode {
+    id: string;
+    user_id: string;
+    data: string;
+    source: string;
+    created_at: string;
+    valid_from?: string;
+    valid_to?: string | null;
+    superseded_by?: string | null;
+    supersede_reason?: string | null;
 }
 export interface AtomicFact {
     fact: string;

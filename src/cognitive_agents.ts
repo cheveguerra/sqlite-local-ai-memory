@@ -821,13 +821,14 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
         if (idx > 0 && idx <= matches.length) {
           const collision = matches[idx - 1];
           if (collision && !protectedIds.includes(collision.id)) {
-            const ok = this.store.deactivateMemoryFact(collision.id);
+            const reason = typeof data.reason === "string" ? data.reason : `Superseded by new fact: ${fact.slice(0, 60)}`;
+            const ok = this.store.supersedeMemoryFact(collision.id, pointId, reason);
             if (ok) {
               if (this.config.debug) {
-                console.error(`⚖️ [MEMORY:ARBITER] Conflict detected: Replaced fact (UUID: ${collision.id}) "${collision.payload.data}" with new fact: "${fact}"`);
+                console.error(`⚖️ [MEMORY:ARBITER] Conflict detected: Superseded fact (UUID: ${collision.id}) "${collision.payload.data}" with new fact (UUID: ${pointId}): "${fact}" (Reason: ${reason})`);
               }
             } else {
-              console.error(`❌ [COGNITIVE] Failed to deactivate collided fact ${collision.id}`);
+              console.error(`❌ [COGNITIVE] Failed to supersede collided fact ${collision.id}`);
             }
           }
         } else {
@@ -840,11 +841,10 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
         console.error("⚠️ [COGNITIVE] Semantic Arbiter failed, keeping existing facts:", err.message);
       }
     } else if (!this.config.semanticArbitrator && matches.length > 0 && matches[0].score > 0.95) {
-      const ok = this.store.insertMemoryFact(matches[0].id, fact, userId, vector, source);
-      if (!ok) {
-        throw new Error(`Failed to update fact in SQLite: "${fact.slice(0, 50)}..."`);
+      const collision = matches[0];
+      if (collision && !protectedIds.includes(collision.id)) {
+        this.store.supersedeMemoryFact(collision.id, pointId, `High similarity supersede (score: ${(collision.score || 0).toFixed(2)})`);
       }
-      bypassInsert = true;
     }
 
     if (!bypassInsert) {

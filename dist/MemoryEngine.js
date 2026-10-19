@@ -183,7 +183,7 @@ export class MemoryEngine {
                 expanderLatencyMs = Date.now() - expanderStart;
             }
         }
-        const ftsHits = this.store.searchFTS5(effectiveQuery, limit * 2, userId);
+        const ftsHits = this.store.searchFTS5(effectiveQuery, limit * 2, userId, opts?.asOf);
         let queryVec = [];
         try {
             queryVec = await this.agents.getEmbedding(effectiveQuery, opts?.signal);
@@ -195,7 +195,7 @@ export class MemoryEngine {
         }
         let vecHits = [];
         if (queryVec.length === EMBEDDING_DIM) {
-            vecHits = this.store.searchVectorInt8(queryVec, limit * 2, userId);
+            vecHits = this.store.searchVectorInt8(queryVec, limit * 2, userId, opts?.asOf);
             // FIX R2-2: pass `undefined` (not opts?.signal) so backfill survives
             // even if the MCP client cancels the originating search request.
             if (!this.backfillInFlight.has(userId)) {
@@ -353,6 +353,12 @@ export class MemoryEngine {
      */
     async contextualizeQuery(query, shortHistory) {
         return await this.agents.contextualizeQuery(query, shortHistory);
+    }
+    /**
+     * Retrieves the evolutionary Point-in-Time history and replacement lineage of a fact.
+     */
+    getFactLineage(pointId) {
+        return this.store.getFactLineage(pointId);
     }
     /**
      * Gracefully closes the SQLite database connection.

@@ -1,4 +1,4 @@
-import { type MemoryConfig, type MemoryHit, type AutoDreamResult } from "./types.js";
+import { type MemoryConfig, type MemoryHit, type FactLineageNode, type AutoDreamResult } from "./types.js";
 export declare class MemoryEngine {
     private store;
     private agents;
@@ -52,6 +52,7 @@ export declare class MemoryEngine {
     search(query: string, limit?: number, userId?: string, opts?: {
         signal?: AbortSignal;
         history?: string;
+        asOf?: string;
     }): Promise<MemoryHit[]>;
     /**
      * Retrieves the current consolidated active working state summary (Dashboard).
@@ -95,6 +96,10 @@ export declare class MemoryEngine {
      * now calls contextualizeQuery automatically when turns are available.
      */
     contextualizeQuery(query: string, shortHistory: string): Promise<string>;
+    /**
+     * Retrieves the evolutionary Point-in-Time history and replacement lineage of a fact.
+     */
+    getFactLineage(pointId: string): FactLineageNode[];
     /**
      * Gracefully closes the SQLite database connection.
      */

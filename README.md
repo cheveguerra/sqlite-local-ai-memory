@@ -92,7 +92,17 @@ Add to your `claude_desktop_config.json`, `mcp_config.json`, or Cursor MCP setti
   }
 }
 ```
-*Exposes 4 native MCP tools: `save_fact`, `search_memory`, `get_current_state`, and `consolidate`.*
+*Exposes 5 native MCP tools: `save_fact`, `search_memory` (with Point-in-Time `as_of`), `get_fact_lineage`, `get_current_state`, and `consolidate`.*
+
+#### MCP Tools Manifest
+
+| Tool | Purpose | Key Parameters |
+| :--- | :--- | :--- |
+| **`save_fact`** | Saves an atomic fact directly into memory with automated collision/contradiction auditing. | `fact` (string), `user_id` (optional) |
+| **`search_memory`** | Parallel FTS5 BM25 + Int8 Vector search. Supports Point-in-Time retrospective queries. | `query` (string), `as_of` (optional, e.g. `"2026-06-01"`), `limit` (optional) |
+| **`get_fact_lineage`** | Reconstructs the complete version history, evolution, and supersede reasons for a fact. | `point_id` (string UUID) |
+| **`get_current_state`** | 0 ms instant read of live working memory dashboard and active incubator cases. | `user_id` (optional) |
+| **`consolidate`** | Runs background memory maintenance (AutoDream sleep cycle) to synthesize daily progress. | `user_id` (optional) |
 
 #### MCP & Standalone Environment Variables
 
@@ -212,7 +222,12 @@ See [`.env.example`](.env.example) for a ready-to-use configuration template.
 ## 🔌 Programmatic API Reference
 
 ### 🟢 `memory.search(query, limit?, userId?, opts?)`
-Executes parallel FTS5 BM25 + Int8 Vector search. Returns `MemoryHit[]` containing `data` (canonical fact string), `score`, `source`, and `created_at`. Accepts `{ signal?: AbortSignal, history?: string }` in `opts`.
+Executes parallel FTS5 BM25 + Int8 Vector search. Returns `MemoryHit[]` containing `data` (canonical fact string), `score`, `source`, and `created_at`.
+- **Options (`opts`):** Accepts `{ signal?: AbortSignal, history?: string, asOf?: string }`.
+- **Point-in-Time Retrospective Queries:** By passing `asOf: "YYYY-MM-DD"` (e.g. `"2026-06-01"` or ISO timestamp), the engine performs historical time-travel, returning only facts that were actively true at that exact date in the past without unneeded vector scans.
+
+### 🟢 `memory.getFactLineage(pointId)` -> `FactLineageNode[]`
+Reconstructs the complete historical evolution, version tree, and supersede chain for any given fact UUID (both backwards to the root origin and forward to the active leaf). Returns an array of nodes containing `point_id`, `data`, `valid_from`, `valid_to`, `superseded_by`, and `supersede_reason`.
 
 ### 🟢 `memory.save(text, userId?, opts?)`
 Ingests raw user input or dialogue through the 2-Layer Noise Firewall, Notary Fact Extractor, and Real-Time Semantic Arbiter. Accepts `{ signal?: AbortSignal, source?: string }` in `opts`.
