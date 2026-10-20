@@ -51,11 +51,11 @@ const SOURCE_TAG = z
 // Tool 1: save_fact
 server.tool(
   "save_fact",
-  "Stores a new fact, preference, or technical knowledge directly in memory.",
+  "Persists an atomic fact, preference, or technical rule into long-term memory with automatic semantic deduplication and vector indexing (append-only write). Use for immediate logging; for search use 'search_memory', for evolution audits use 'get_fact_lineage', and for batch synthesis use 'consolidate'. Returns the assigned fact UUID and status.",
   {
-    fact: z.string().min(3, "Fact is too short to save.").max(2000).describe("The fact or information to save."),
-    userId: z.string().optional().describe("Optional user ID to scope the memory fact."),
-    source: SOURCE_TAG.describe("Source or project tag, e.g. 'TOTALCONNECT', 'SQLITE_MEMORY' (optional, alphanumeric only)."),
+    fact: z.string().min(3, "Fact is too short to save.").max(2000).describe("The concise fact, technical decision, architecture rule, or user preference to store (e.g. 'PostgreSQL runs on port 5432 with peer authentication'). Must be self-contained and clear without pronouns."),
+    userId: z.string().optional().describe("User or agent namespace to scope the memory. Defaults to 'user_default' when omitted."),
+    source: SOURCE_TAG.describe("Project or subsystem tag (e.g. 'HOMELAB', 'AUDIOBOOK', 'TOTALCONNECT'). Alphanumeric and underscores only. Used to partition and filter project memories."),
   },
   async ({ fact, userId, source }, { signal }) => {
     try {
@@ -97,13 +97,13 @@ server.tool(
 // Tool 2: search_memory
 server.tool(
   "search_memory",
-  "Searches long-term memory for relevant facts or historical context using hybrid FTS5 BM25 + Int8 Vector search. Optionally pass recent conversation history to improve query disambiguation.",
+  "Searches long-term memory using hybrid FTS5 BM25 lexical and vector cosine similarity with RRF ranking (read-only). Supports Point-in-Time queries via 'as_of'. Use for factual lookup and technical recall. For active high-level board use 'get_current_state'; for fact revisions use 'get_fact_lineage'. Returns ranked list of scored memory items.",
   {
-    query: z.string().min(1, "Search query cannot be empty.").describe("Search terms or topic to recall."),
-    limit: z.number().int().min(1).max(20).optional().default(5).describe("Maximum number of results to return (default: 5, max: 20)."),
-    userId: z.string().optional().describe("Optional user ID to scope the search."),
-    history: z.string().max(4000).optional().describe("Optional recent conversation history (e.g. 'U: hi\\nA: hello\\nU: what was that thing?'). When provided, the Query Expander uses it to resolve ambiguous references."),
-    as_of: z.string().optional().describe("Optional ISO timestamp (e.g. '2026-10-01T00:00:00Z') or date ('2026-10-01') for Point-in-Time retrospective queries. Returns facts as they existed at that exact moment in time."),
+    query: z.string().min(1, "Search query cannot be empty.").describe("Search keywords, error messages, concepts, or questions (e.g. 'Proxmox vzdump backup schedule', 'auth token expiration'). Avoid conversational filler."),
+    limit: z.number().int().min(1).max(20).optional().default(5).describe("Maximum number of ranked results to return (1-20). Defaults to 5 when omitted."),
+    userId: z.string().optional().describe("User or agent namespace to search within. Defaults to 'user_default' when omitted."),
+    history: z.string().max(4000).optional().describe("Recent conversation dialogue (e.g. 'User: ... \nAssistant: ...'). When provided, the internal Query Expander resolves ambiguous pronouns and conversational context into explicit search terms."),
+    as_of: z.string().optional().describe("ISO 8601 timestamp (e.g. '2026-10-15T12:00:00Z') or date ('2026-10-15') for Point-in-Time retrospective queries. Returns only facts that were active and not yet superseded at that specific moment."),
   },
   async ({ query, limit, userId, history, as_of }, { signal }) => {
     try {
@@ -159,13 +159,13 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
-// Tool: get_fact_lineage (Point-in-Time evolutionary history)
+// Tool 3: get_fact_lineage (Point-in-Time evolutionary history)
 // ---------------------------------------------------------------------------
 server.tool(
   "get_fact_lineage",
-  "Inspect the evolutionary history and Point-in-Time lineage of a memory fact. Returns previous superseded versions and future replacements.",
+  "Traces the full evolutionary history and supersede chain of a fact by its UUID (read-only). Use when auditing how or why a rule changed, or resolving conflicting facts. Obtain the UUID via 'search_memory'. Returns chronological revisions and rationale.",
   {
-    point_id: z.string().describe("UUID of the memory fact to trace"),
+    point_id: z.string().describe("The exact UUID of the memory fact to trace (e.g. 'cc0675f1-4274-4854-9eac-4e85beadea05'). Obtainable from 'search_memory' results."),
   },
   async ({ point_id }, { signal }) => {
     try {
@@ -209,12 +209,12 @@ server.tool(
   }
 );
 
-// Tool 3: get_current_state
+// Tool 4: get_current_state
 server.tool(
   "get_current_state",
-  "Retrieves the active, current working state summary (Dashboard).",
+  "Retrieves the active executive working dashboard, active project focus, and recent milestones (read-only). Use during session bootstrap or task switching for high-level orientation. Do NOT use for granular fact searches (use 'search_memory'). Returns formatted markdown dashboard.",
   {
-    userId: z.string().optional().describe("Optional user ID to read the dashboard for."),
+    userId: z.string().optional().describe("User or agent namespace whose active dashboard to read. Defaults to 'user_default' when omitted."),
   },
   async ({ userId }, { signal }) => {
     try {
@@ -246,13 +246,13 @@ server.tool(
   }
 );
 
-// Tool 4: consolidate (AutoDream)
+// Tool 5: consolidate (AutoDream)
 server.tool(
   "consolidate",
-  "Runs background memory maintenance (AutoDream): summarizes recent progress, cleans up outdated notes, saves key technical takeaways, and updates the active project board.",
+  "Executes cognitive memory maintenance (AutoDream): synthesizes progress, archives obsolete notes, and updates the project dashboard (batch write). Call only at session close or after major milestones, NOT on every turn. Preserves other projects' cards. Returns triage summary report.",
   {
-    userId: z.string().optional().describe("User ID to consolidate (optional, default: user_default)."),
-    source: SOURCE_TAG.describe("Current project or source being consolidated (e.g. 'TOTALCONNECT'). Preserves items from other projects in dashboard. Alphanumeric only."),
+    userId: z.string().optional().describe("User or agent namespace to consolidate. Defaults to 'user_default' when omitted."),
+    source: SOURCE_TAG.describe("Project or subsystem tag to consolidate (e.g. 'HOMELAB', 'AUDIOBOOK', 'TOTALCONNECT'). Preserves items belonging to other project tags in the dashboard. Alphanumeric and underscores only."),
   },
   async ({ userId, source }, { signal }) => {
     try {
