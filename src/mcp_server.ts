@@ -266,11 +266,15 @@ server.tool(
           result.triageMemory.map((t, i) => `[Card ${i + 1} - ${t.type}]\n${t.fact}`).join("\n\n")
         : "";
 
+      const fallbackWarning = result.narrativeSummary.includes("[FALLBACK")
+        ? `⚠️ WARNING: AutoDream operated in FALLBACK MODE (no LLM configured or reachable). This mode is rudimentary: it only appends recent facts with basic FIFO bounding. Semantic deduplication, cause-root triage, and narrative synthesis are unavailable without an active LLM.\n\n`
+        : "";
+
       return {
         content: [
           {
             type: "text",
-            text: `🌙 AutoDream State Consolidation Complete:\n\n` +
+            text: `${fallbackWarning}🌙 AutoDream State Consolidation Complete:\n\n` +
               `• Executive Summary:\n"${result.narrativeSummary}"\n\n` +
               `• Active Dashboard Items: ${result.totalActive}\n` +
               `• Consolidated Facts Injected: ${result.triageMemory.length}\n` +

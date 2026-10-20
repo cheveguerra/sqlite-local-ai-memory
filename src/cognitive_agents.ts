@@ -153,7 +153,9 @@ export class CognitiveAgents {
       dbPath: config.dbPath || process.env.SQLITE_MEM_PATH || "./memoria.db",
       userName: config.userName || process.env.MEMORY_USER_NAME || "User",
       userId: config.userId || process.env.MEMORY_USER_ID || "user_default",
-      ollamaUrl: config.ollamaUrl || process.env.OLLAMA_URL || process.env.OLLAMA_HOST || "http://localhost:11434",
+      ollamaUrl: config.ollamaUrl !== undefined
+        ? config.ollamaUrl
+        : (process.env.OLLAMA_URL !== undefined ? process.env.OLLAMA_URL : (process.env.OLLAMA_HOST || "")),
       geminiApiKey: config.geminiApiKey !== undefined ? config.geminiApiKey : (process.env.GEMINI_API_KEY || ""),
       openRouterApiKey: config.openRouterApiKey || process.env.OPENROUTER_API_KEY || "",
       semanticArbitrator: config.semanticArbitrator !== false,
@@ -235,18 +237,28 @@ export class CognitiveAgents {
     return null;
   }
 
-  private getOllamaApiUrl(): string {
-    let raw = (this.config.ollamaUrl || process.env.OLLAMA_URL || process.env.OLLAMA_HOST || "http://localhost:11434")
-      .trim()
-      .replace(/\/+$/, "");
+  private getOllamaApiUrl(): string | null {
+    const rawVal = this.config.ollamaUrl !== undefined
+      ? this.config.ollamaUrl
+      : (process.env.OLLAMA_URL !== undefined ? process.env.OLLAMA_URL : process.env.OLLAMA_HOST);
+
+    if (rawVal === undefined || rawVal === null) {
+      return null;
+    }
+
+    let raw = rawVal.trim().replace(/\/+$/, "");
+    if (!raw || raw.toLowerCase() === "none" || raw.toLowerCase() === "disabled" || raw.toLowerCase() === "false") {
+      return null;
+    }
+
     raw = raw.replace(/\/(api\/)?(chat|generate|embed)$/i, "");
     return raw.endsWith("/api") ? raw : `${raw}/api`;
   }
 
   public getAgentsMatrix() {
     const apiUrl = this.getOllamaApiUrl();
-    const ollamaChatEndpoint = `${apiUrl}/chat`;
-    const ollamaEmbedEndpoint = `${apiUrl}/embed`;
+    const ollamaChatEndpoint = apiUrl ? `${apiUrl}/chat` : undefined;
+    const ollamaEmbedEndpoint = apiUrl ? `${apiUrl}/embed` : undefined;
 
     const gatekeeperTarget = parseModelTarget(process.env.GATEKEEPER_MODEL || process.env.PORTERO_MODEL, "gemini", "gemini-2.5-flash-lite");
     const expanderTarget = parseModelTarget(process.env.EXPANDER_MODEL ?? process.env.LIBRARIAN_MODEL, "gemini", "gemini-2.5-flash-lite");
@@ -267,12 +279,14 @@ export class CognitiveAgents {
         { provider: target.provider, model: target.model, endpoint, timeout: defaultTimeout },
       ];
       if (target.provider === "gemini" && !this.config.geminiApiKey) {
-        options.push({
-          provider: "ollama",
-          model: process.env.OLLAMA_DEFAULT_MODEL || "qwen2.5:1.5b",
-          endpoint: ollamaChatEndpoint,
-          timeout: defaultTimeout,
-        });
+        if (ollamaChatEndpoint) {
+          options.push({
+            provider: "ollama",
+            model: process.env.OLLAMA_DEFAULT_MODEL || "qwen2.5:1.5b",
+            endpoint: ollamaChatEndpoint,
+            timeout: defaultTimeout,
+          });
+        }
       }
       return {
         desc,
@@ -312,12 +326,14 @@ export class CognitiveAgents {
         { provider: target.provider, model: target.model, endpoint: ep, timeout: defaultTimeout },
       ];
       if (target.provider === "gemini" && !this.config.geminiApiKey) {
-        options.push({
-          provider: "ollama",
-          model: process.env.OLLAMA_DEFAULT_MODEL || "qwen2.5:3b",
-          endpoint: endpoint || ollamaChatEndpoint,
-          timeout: defaultTimeout,
-        });
+        if (ollamaChatEndpoint) {
+          options.push({
+            provider: "ollama",
+            model: process.env.OLLAMA_DEFAULT_MODEL || "qwen2.5:3b",
+            endpoint: endpoint || ollamaChatEndpoint,
+            timeout: defaultTimeout,
+          });
+        }
       }
       return {
         desc,
@@ -404,11 +420,12 @@ export class CognitiveAgents {
   public async getEmbedding(text: string, signal?: AbortSignal): Promise<number[]> {
     const matrix = this.getAgentsMatrix();
     const vecConfig = matrix.EMBEDDER;
-    const endpoint = vecConfig.endpoint || `${this.getOllamaApiUrl()}/embed`;
+    const apiUrl = this.getOllamaApiUrl();
+    const endpoint = vecConfig.endpoint || (apiUrl ? `${apiUrl}/embed` : undefined);
     const genAI = await this.getGenAIClient();
 
     // 1. Try local Ollama first if configured as primary embedder OR if Gemini is default but no GEMINI_API_KEY was provided
-    if (vecConfig.provider === "ollama" || (vecConfig.provider === "gemini" && !genAI)) {
+    if (endpoint && (vecConfig.provider === "ollama" || (vecConfig.provider === "gemini" && !genAI))) {
       const ollamaEmbedModel = vecConfig.provider === "ollama" ? vecConfig.model : (process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text");
       try {
         const res = await axios.post(endpoint, {
@@ -505,7 +522,13 @@ export class CognitiveAgents {
           };
           if (isJson) payload.format = "json";
 
-          const res = await axios.post(config.endpoint || `${this.getOllamaApiUrl()}/chat`, payload, {
+          const apiUrl = this.getOllamaApiUrl();
+          const targetEndpoint = config.endpoint || (apiUrl ? `${apiUrl}/chat` : undefined);
+          if (!targetEndpoint) {
+            continue;
+          }
+
+          const res = await axios.post(targetEndpoint, payload, {
             timeout: timeoutMs,
             signal,
           });
@@ -1078,14 +1101,44 @@ Return strict JSON matching schema. Retain primary user's native language.`;
     const userPrompt = `CURRENT_TIMESTAMP: ${NOW}\nCURRENT_SOURCE: ${currentSource || "ALL"}\nCURRENT_DASHBOARD: ${JSON.stringify(activeDashboard)}\nNEW_FACTS: ${JSON.stringify(factsFormatted)}`;
 
     try {
-      const rawRes = await this.executeAgent(this.getAgentsMatrix().STATE_ORCHESTRATOR, systemPrompt, userPrompt, true, signal);
-      // FIX R2-3: specific SyntaxError catch for orchestrator hallucinated JSON.
       let data: any;
       try {
-        data = JSON.parse(extractJsonPayload(rawRes));
-      } catch (parseErr: any) {
-        console.error(`⚠️ [COGNITIVE] State Orchestrator returned invalid JSON: ${parseErr.message}. Raw snippet: ${rawRes.slice(0, 120)}`);
-        throw parseErr; // escalate — this prevents silently wiping the dashboard
+        const rawRes = await this.executeAgent(this.getAgentsMatrix().STATE_ORCHESTRATOR, systemPrompt, userPrompt, true, signal);
+        // FIX R2-3: specific SyntaxError catch for orchestrator hallucinated JSON.
+        try {
+          data = JSON.parse(extractJsonPayload(rawRes));
+        } catch (parseErr: any) {
+          console.error(`⚠️ [COGNITIVE] State Orchestrator returned invalid JSON: ${parseErr.message}. Raw snippet: ${rawRes.slice(0, 120)}`);
+          throw parseErr; // escalate — this prevents silently wiping the dashboard
+        }
+      } catch (agentErr: any) {
+        if (agentErr.name === "AbortError" || signal?.aborted) {
+          throw agentErr;
+        }
+        console.warn(`⚠️ [AUTODREAM] LLM unavailable (${agentErr.message}). Engaging pragmatic fallback consolidation...`);
+
+        // Pragmatic KISS fallback (no LLM available)
+        const recentFacts = newFacts.slice(-5);
+        const fallbackItems: DashboardItem[] = recentFacts.map((f: any) => ({
+          id: crypto.randomUUID(),
+          ts: NOW,
+          txt: `[FALLBACK] ${f.data.slice(0, 140)}`,
+          source: (f.source || currentSource || "system").toUpperCase(),
+        }));
+
+        // Bounded buffer: preserve previous dashboard items and append recent ones (capped at 10 items)
+        const mergedDashboard = [...activeDashboard, ...fallbackItems].slice(-10);
+        const lastPreview = recentFacts.length > 0
+          ? recentFacts[recentFacts.length - 1].data.slice(0, 80)
+          : "No recent activity";
+
+        data = {
+          narrative_summary: `[FALLBACK / NO-LLM] Raw deterministic consolidation executed. Latest activity: "${lastPreview}...". (⚠️ NOTICE: Degraded mode without cognitive synthesis or semantic deduplication).`,
+          dashboard: mergedDashboard,
+          triage_memory: [],
+          open_cases: [],
+          is_fallback: true,
+        };
       }
 
       let narrativeSummary: string = data.narrative_summary || data.resumen_narrativo || "AutoDream consolidated.";
