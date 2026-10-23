@@ -7,12 +7,12 @@
     "url": "https://github.com/cheveguerra/sqlite-local-ai-memory",
     "source": "github"
   },
-  "version": "1.5.2",
+  "version": "1.5.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "sqlite-local-ai-memory",
-      "version": "1.5.2",
+      "version": "1.5.3",
       "transport": {
         "type": "stdio"
       },

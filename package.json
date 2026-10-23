@@ -1,7 +1,7 @@
 {
   "name": "sqlite-local-ai-memory",
   "mcpName": "io.github.cheveguerra/sqlite-local-ai-memory",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "100% In-Process Bare-Metal Hybrid Memory Engine & MCP Server for LLMs (SQLite + Int8 Vectors).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
