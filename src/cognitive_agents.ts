@@ -278,7 +278,7 @@ export class CognitiveAgents {
       const options: Array<{ provider: ModelProvider; model: string; endpoint?: string; timeout?: number }> = [
         { provider: target.provider, model: target.model, endpoint, timeout: defaultTimeout },
       ];
-      if (target.provider === "gemini" && !this.config.geminiApiKey) {
+      if (target.provider === "gemini") {
         if (ollamaChatEndpoint) {
           options.push({
             provider: "ollama",
