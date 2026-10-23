@@ -11,6 +11,11 @@ Most LLM long-term memory frameworks require running complex Docker microservice
 
 **SQLite Local AI Memory** provides a **100% In-Process, Bare-Metal Memory Architecture** designed for TypeScript/Node.js environments. It achieves **sub-2ms retrieval latencies** without external database servers, network IPC roundtrips, or native C++ compilation issues.
 
+> [!IMPORTANT]
+> **Honest Architectural Transparency: What is actually "Local"?**
+> - **The Storage & Search Engine is 100% Local & In-Process:** Your facts, Int8 quantized vectors, FTS5 BM25 indexes, and working dashboard live entirely inside a single local SQLite file on your machine. Zero cloud vector databases (no Pinecone, no Qdrant), zero database microservices, and zero network calls for retrieval.
+> - **The Cognitive AI Layer is Pluggable (Cloud or Local):** Extracting permanent facts (Notary), arbitrating state contradictions (Arbiter), and running sleep cycles (AutoDream) requires an LLM. By default, it points to lightweight cloud models (Google Gemini) for high speed and strict JSON schema reliability. You can run **100% fully offline** by configuring local Ollama models (`qwen2.5-coder` + `nomic-embed-text`), or in pure zero-LLM bare-metal mode (keyword FTS5 only).
+
 ---
 
 ## 🎯 What It Is & How It Works (In Plain English)
