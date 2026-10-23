@@ -230,25 +230,27 @@ export class MemoryEngine {
       }
     }
 
-    const maxRankAbs = Math.max(...ftsHits.map((h) => Math.abs(h.rank ?? 0)), 1);
+    // Canonical Reciprocal Rank Fusion (RRF) with k = 60
+    const K = 60;
     const combinedMap = new Map<string, MemoryHit>();
 
-    for (const h of ftsHits) {
-      const normalizedFtsScore = h.rank != null ? Math.abs(h.rank) / maxRankAbs : 0.5;
-      combinedMap.set(h.id, { ...h, score: normalizedFtsScore * 0.8 });
-    }
+    ftsHits.forEach((h, rank) => {
+      const rrfScore = 1 / (K + rank + 1);
+      combinedMap.set(h.id, { ...h, score: rrfScore });
+    });
 
-    for (const h of vecHits) {
+    vecHits.forEach((h, rank) => {
+      const rrfScore = 1 / (K + rank + 1);
       if (combinedMap.has(h.id)) {
         const prev = combinedMap.get(h.id)!;
         combinedMap.set(h.id, {
           ...prev,
-          score: Math.max(prev.score || 0, (h.score || 0) * 0.9) + 0.1,
+          score: (prev.score || 0) + rrfScore,
         });
       } else {
-        combinedMap.set(h.id, { ...h, score: (h.score || 0) * 0.9 });
+        combinedMap.set(h.id, { ...h, score: rrfScore });
       }
-    }
+    });
 
     const unified = Array.from(combinedMap.values());
     unified.sort((a, b) => (b.score || 0) - (a.score || 0));

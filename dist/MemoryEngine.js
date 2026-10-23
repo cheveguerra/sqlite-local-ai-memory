@@ -205,24 +205,26 @@ export class MemoryEngine {
                     .finally(() => this.backfillInFlight.delete(userId));
             }
         }
-        const maxRankAbs = Math.max(...ftsHits.map((h) => Math.abs(h.rank ?? 0)), 1);
+        // Canonical Reciprocal Rank Fusion (RRF) with k = 60
+        const K = 60;
         const combinedMap = new Map();
-        for (const h of ftsHits) {
-            const normalizedFtsScore = h.rank != null ? Math.abs(h.rank) / maxRankAbs : 0.5;
-            combinedMap.set(h.id, { ...h, score: normalizedFtsScore * 0.8 });
-        }
-        for (const h of vecHits) {
+        ftsHits.forEach((h, rank) => {
+            const rrfScore = 1 / (K + rank + 1);
+            combinedMap.set(h.id, { ...h, score: rrfScore });
+        });
+        vecHits.forEach((h, rank) => {
+            const rrfScore = 1 / (K + rank + 1);
             if (combinedMap.has(h.id)) {
                 const prev = combinedMap.get(h.id);
                 combinedMap.set(h.id, {
                     ...prev,
-                    score: Math.max(prev.score || 0, (h.score || 0) * 0.9) + 0.1,
+                    score: (prev.score || 0) + rrfScore,
                 });
             }
             else {
-                combinedMap.set(h.id, { ...h, score: (h.score || 0) * 0.9 });
+                combinedMap.set(h.id, { ...h, score: rrfScore });
             }
-        }
+        });
         const unified = Array.from(combinedMap.values());
         unified.sort((a, b) => (b.score || 0) - (a.score || 0));
         const results = unified.slice(0, limit);

@@ -221,7 +221,7 @@ export class CognitiveAgents {
             const options = [
                 { provider: target.provider, model: target.model, endpoint, timeout: defaultTimeout },
             ];
-            if (target.provider === "gemini" && !this.config.geminiApiKey) {
+            if (target.provider === "gemini") {
                 if (ollamaChatEndpoint) {
                     options.push({
                         provider: "ollama",
@@ -256,7 +256,7 @@ export class CognitiveAgents {
             const options = [
                 { provider: target.provider, model: target.model, endpoint: ep, timeout: defaultTimeout },
             ];
-            if (target.provider === "gemini" && !this.config.geminiApiKey) {
+            if (target.provider === "gemini") {
                 if (ollamaChatEndpoint) {
                     options.push({
                         provider: "ollama",
@@ -337,7 +337,7 @@ export class CognitiveAgents {
             }
         }
         // 2. Gemini Cloud gemini-embedding-001 (768 Matryoshka dimensions)
-        if (genAI) {
+        if (genAI && vecConfig.provider === "gemini") {
             const EMBED_TIMEOUT_MS = 10000;
             const abortController = new AbortController();
             const timeoutId = setTimeout(() => abortController.abort(new Error(`Gemini embedding timeout after ${EMBED_TIMEOUT_MS}ms`)), EMBED_TIMEOUT_MS);
@@ -352,7 +352,7 @@ export class CognitiveAgents {
                 signal.addEventListener("abort", parentAbortHandler, { once: true });
             }
             try {
-                const embedModel = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
+                const embedModel = genAI.getGenerativeModel({ model: vecConfig.model || "gemini-embedding-001" });
                 const res = await embedModel.embedContent({
                     content: { role: "user", parts: [{ text }] },
                     outputDimensionality: EMBEDDING_DIM,
@@ -680,8 +680,8 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
         }
         const pointId = crypto.randomUUID();
         protectedIds.push(pointId);
-        let bypassInsert = false;
-        if (!skipArbiter && this.config.semanticArbitrator && matches.length > 0) {
+        let collisionToSupersede = null;
+        if (!skipArbiter && this.config.semanticArbitrator && matches.length > 0 && (matches[0].score || 0) >= 0.70) {
             // FIX R3-1.4: append guard — Arbiter receives previously-stored user facts
             // as EXISTING FACTS, which is exactly where injection payloads could reappear.
             const systemPrompt = (this.config.customPrompts?.semanticArbiterSystem || this.config.customPrompts?.arbitroSystem || `You are a Consistency Auditor for a long-term memory database.\nYour task is to evaluate whether a NEW FACT updates or replaces an EXISTING fact (e.g., changes an IP address, changes a service status, or changes an active location) or if it adds new information.\nIf the NEW FACT replaces or updates an existing state, return replace_index with the numeric 1-based index (1, 2, 3...) of the fact to replace.\nIf the NEW FACT is additive or new, return replace_index = 0. Return strict JSON: {"replace_index": 0, "reason": "..."}`) + ANTI_INJECTION_GUARD;
@@ -694,15 +694,7 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
                     const collision = matches[idx - 1];
                     if (collision && !protectedIds.includes(collision.id)) {
                         const reason = typeof data.reason === "string" ? data.reason : `Superseded by new fact: ${fact.slice(0, 60)}`;
-                        const ok = this.store.supersedeMemoryFact(collision.id, pointId, reason);
-                        if (ok) {
-                            if (this.config.debug) {
-                                console.error(`⚖️ [MEMORY:ARBITER] Conflict detected: Superseded fact (UUID: ${collision.id}) "${collision.payload.data}" with new fact (UUID: ${pointId}): "${fact}" (Reason: ${reason})`);
-                            }
-                        }
-                        else {
-                            console.error(`❌ [COGNITIVE] Failed to supersede collided fact ${collision.id}`);
-                        }
+                        collisionToSupersede = { id: collision.id, reason, oldText: collision.payload.data };
                     }
                 }
                 else {
@@ -720,13 +712,26 @@ Respond ONLY with a JSON object: { "expanded_query": "your optimized search term
         else if (!this.config.semanticArbitrator && matches.length > 0 && matches[0].score > 0.95) {
             const collision = matches[0];
             if (collision && !protectedIds.includes(collision.id)) {
-                this.store.supersedeMemoryFact(collision.id, pointId, `High similarity supersede (score: ${(collision.score || 0).toFixed(2)})`);
+                collisionToSupersede = {
+                    id: collision.id,
+                    reason: `High similarity supersede (score: ${(collision.score || 0).toFixed(2)})`,
+                    oldText: collision.payload.data,
+                };
             }
         }
-        if (!bypassInsert) {
-            const ok = this.store.insertMemoryFact(pointId, fact, userId, vector, source);
-            if (!ok) {
-                throw new Error(`Failed to insert fact in SQLite: "${fact.slice(0, 50)}..."`);
+        const ok = this.store.insertMemoryFact(pointId, fact, userId, vector, source);
+        if (!ok) {
+            throw new Error(`Failed to insert fact in SQLite: "${fact.slice(0, 50)}..."`);
+        }
+        if (collisionToSupersede) {
+            const supOk = this.store.supersedeMemoryFact(collisionToSupersede.id, pointId, collisionToSupersede.reason);
+            if (supOk) {
+                if (this.config.debug) {
+                    console.error(`⚖️ [MEMORY:ARBITER] Conflict detected: Superseded fact (UUID: ${collisionToSupersede.id}) "${collisionToSupersede.oldText}" with new fact (UUID: ${pointId}): "${fact}" (Reason: ${collisionToSupersede.reason})`);
+                }
+            }
+            else {
+                console.error(`❌ [COGNITIVE] Failed to supersede collided fact ${collisionToSupersede.id}`);
             }
         }
         return { degraded: !hasVector };
@@ -787,6 +792,8 @@ The primary user is named ${this.config.userName}. Always replace pronouns with 
             }
             catch (parseErr) {
                 console.error(`⚠️ [COGNITIVE] Notary returned invalid JSON (possible hallucination): ${parseErr.message}. Raw snippet: ${rawRes.slice(0, 120)}`);
+                const rawCleanText = messageMatch ? messageMatch[1].trim() : text.trim();
+                await this.injectUnifiedFact(`[RAW] ${rawCleanText}`, userId, [], signal, source, true);
                 return;
             }
             const factsList = parsedJson.facts || parsedJson.hechos;
