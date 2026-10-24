@@ -374,7 +374,7 @@ export class CognitiveAgents {
       "ORCHESTRATOR_MODEL",
       "gemini",
       "gemini-2.5-flash-lite",
-      30000
+      process.env.ORCHESTRATOR_TIMEOUT_MS ? parseInt(process.env.ORCHESTRATOR_TIMEOUT_MS, 10) : 360000
     );
 
     const SEMANTIC_ARBITER: AgentModelConfig = createEssentialConfig(
@@ -518,7 +518,9 @@ export class CognitiveAgents {
               { role: "user", content: userPrompt },
             ],
             stream: false,
-            options: { num_ctx: 4096 },
+            options: {
+              num_ctx: process.env.OLLAMA_NUM_CTX ? parseInt(process.env.OLLAMA_NUM_CTX, 10) : 8192,
+            },
           };
           if (isJson) payload.format = "json";
 
@@ -1106,7 +1108,11 @@ Return strict JSON matching schema. Retain primary user's native language.`;
       const srcTag = `[${f.source.toUpperCase()}]`;
       return f.data.startsWith(srcTag) ? f.data : `${srcTag} ${f.data}`;
     });
-    const userPrompt = `CURRENT_TIMESTAMP: ${NOW}\nCURRENT_SOURCE: ${currentSource || "ALL"}\nCURRENT_DASHBOARD: ${JSON.stringify(activeDashboard)}\nNEW_FACTS: ${JSON.stringify(factsFormatted)}`;
+    const sanitizedDashboard = activeDashboard.map((item) => ({
+      ...item,
+      txt: item.txt.replace(/^\[FALLBACK\]\s*/i, ""),
+    }));
+    const userPrompt = `CURRENT_TIMESTAMP: ${NOW}\nCURRENT_SOURCE: ${currentSource || "ALL"}\nCURRENT_DASHBOARD: ${JSON.stringify(sanitizedDashboard)}\nNEW_FACTS: ${JSON.stringify(factsFormatted)}`;
 
     try {
       let data: any;
@@ -1130,7 +1136,7 @@ Return strict JSON matching schema. Retain primary user's native language.`;
         const fallbackItems: DashboardItem[] = recentFacts.map((f: any) => ({
           id: crypto.randomUUID(),
           ts: NOW,
-          txt: `[FALLBACK] ${f.data.slice(0, 140)}`,
+          txt: f.data.slice(0, 140),
           source: (f.source || currentSource || "system").toUpperCase(),
         }));
 
@@ -1169,8 +1175,11 @@ Return strict JSON matching schema. Retain primary user's native language.`;
           }))
         : [];
 
-      // Ensure source is populated on all items in newDashboard
+      // Ensure source is populated on all items in newDashboard and strip legacy [FALLBACK] prefixes
       for (const item of newDashboard) {
+        if (typeof item.txt === "string") {
+          item.txt = item.txt.replace(/^\[FALLBACK\]\s*/i, "");
+        }
         if (!item.source) {
           const match = item.txt.match(/^\[INCUBATOR\/OPEN_CASE:([A-Za-z0-9_-]+)\]/i) || item.txt.match(/^\[([A-Za-z0-9_-]+)\]/);
           if (match) {
